@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-gray-50 text-foreground;
+  }
+
+  /* Custom styles for the application */
+  .audio-waveform {
+    @apply w-full h-16 bg-gray-100 rounded-md overflow-hidden;
+  }
+
+  .pulse-recording {
+    @apply w-4 h-4 rounded-full bg-red-600 animate-pulse;
+  }
+}
+
+@layer components {
+  .nav-item {
+    @apply flex items-center px-2 py-2 text-base font-medium rounded-md text-gray-600 hover:bg-gray-50 hover:text-gray-900;
+  }
+
+  .nav-item-active {
+    @apply flex items-center px-2 py-2 text-base font-medium rounded-md bg-primary-50 text-primary-600;
+  }
+
+  .nav-icon {
+    @apply mr-3 text-gray-400 group-hover:text-gray-500;
+  }
+
+  .nav-icon-active {
+    @apply mr-3 text-primary-500;
+  }
+
+  .card-stats {
+    @apply bg-white overflow-hidden shadow rounded-lg;
+  }
+
+  .card-action {
+    @apply bg-white shadow rounded-lg overflow-hidden;
+  }
+
+  .icon-container {
+    @apply w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center;
+  }
+
+  .icon-primary {
+    @apply text-primary-600 text-xl;
+  }
+
+  .file-upload-container {
+    @apply border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-primary-400 transition-colors;
+  }
+}
