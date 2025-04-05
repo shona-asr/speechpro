@@ -7,10 +7,16 @@ import {
   Link2,
   Volume2, 
   LogOut,
-  LayoutDashboard
+  LayoutDashboard,
+  X
 } from "lucide-react";
 
-const Sidebar = () => {
+interface SidebarProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
   const [location] = useLocation();
   const { logout } = useAuth();
 
@@ -48,14 +54,20 @@ const Sidebar = () => {
   ];
 
   return (
-    <aside className="fixed inset-y-0 left-0 w-64 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform duration-300 ease-in-out">
+    <aside className={`fixed inset-y-0 left-0 w-64 bg-white border-r border-gray-200 z-30 transform ${isOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 transition-transform duration-300 ease-in-out`}>
       <div className="flex flex-col h-full">
         {/* Logo and brand */}
-        <div className="flex items-center px-6 py-4 h-16 border-b border-gray-200">
+        <div className="flex items-center justify-between px-6 py-4 h-16 border-b border-gray-200">
           <Link href="/dashboard" className="flex items-center space-x-2">
             <Mic className="w-7 h-7 text-primary" />
             <span className="text-xl font-semibold text-primary">Speech AI</span>
           </Link>
+          <button 
+            onClick={onClose} 
+            className="lg:hidden text-gray-400 hover:text-gray-600"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
         {/* Navigation items */}
