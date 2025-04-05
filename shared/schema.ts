@@ -1,6 +1,7 @@
 import { pgTable, text, serial, integer, timestamp, json, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { relations } from "drizzle-orm";
 
 // User schema
 export const users = pgTable("users", {
@@ -118,6 +119,40 @@ export const insertUserStatsSchema = createInsertSchema(userStats).omit({
   id: true,
   updatedAt: true,
 });
+
+// Relations
+export const usersRelations = relations(users, ({ one, many }) => ({
+  stats: one(userStats, { fields: [users.id], references: [userStats.userId] }),
+  transcriptions: many(transcriptions),
+  translations: many(translations),
+  textToSpeeches: many(textToSpeeches),
+  speechToSpeeches: many(speechToSpeeches),
+  activities: many(activities)
+}));
+
+export const transcriptionsRelations = relations(transcriptions, ({ one }) => ({
+  user: one(users, { fields: [transcriptions.userId], references: [users.id] })
+}));
+
+export const translationsRelations = relations(translations, ({ one }) => ({
+  user: one(users, { fields: [translations.userId], references: [users.id] })
+}));
+
+export const textToSpeechesRelations = relations(textToSpeeches, ({ one }) => ({
+  user: one(users, { fields: [textToSpeeches.userId], references: [users.id] })
+}));
+
+export const speechToSpeechesRelations = relations(speechToSpeeches, ({ one }) => ({
+  user: one(users, { fields: [speechToSpeeches.userId], references: [users.id] })
+}));
+
+export const activitiesRelations = relations(activities, ({ one }) => ({
+  user: one(users, { fields: [activities.userId], references: [users.id] })
+}));
+
+export const userStatsRelations = relations(userStats, ({ one }) => ({
+  user: one(users, { fields: [userStats.userId], references: [users.id] })
+}));
 
 // Types
 export type User = typeof users.$inferSelect;

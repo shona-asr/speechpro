@@ -11,6 +11,10 @@ import {
   textToSpeech, 
   speechToSpeech 
 } from "./services/speechServices";
+import {
+  transcribeWithCustomService,
+  transcribeStreamWithCustomService
+} from "./services/customTranscriptionService";
 import { 
   users, 
   transcriptions, 
@@ -60,6 +64,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     ws.on("close", () => {
       console.log("WebSocket client disconnected");
     });
+  });
+  
+  // Custom transcription routes for external APIs
+  app.post("/transcribe", upload.single("audio"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No audio file provided" });
+      }
+
+      const language = req.body.language || "en-US";
+      
+      console.log(`Processing audio transcription with custom service: ${req.file.originalname} (${language})`);
+      
+      // Use the custom transcription service
+      const result = await transcribeWithCustomService(req.file.path, language);
+      
+      res.json({
+        transcription: result.text
+      });
+    } catch (error: any) {
+      console.error("Error in custom transcription:", error);
+      res.status(500).json({ error: error.message || "Failed to transcribe audio" });
+    }
+  });
+  
+  app.post("/transcribe_stream", upload.single("audio_chunk"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No audio chunk provided" });
+      }
+
+      const language = req.body.language || "en-US";
+      
+      console.log(`Processing streaming audio chunk with custom service: ${req.file.originalname} (${language})`);
+      
+      // Use the custom streaming transcription service
+      const result = await transcribeStreamWithCustomService(req.file.path, language);
+      
+      res.json({
+        transcription: result.text
+      });
+    } catch (error: any) {
+      console.error("Error in custom streaming transcription:", error);
+      res.status(500).json({ error: error.message || "Failed to transcribe audio chunk" });
+    }
   });
 
   // === API Routes ===

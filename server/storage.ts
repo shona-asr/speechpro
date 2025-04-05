@@ -7,6 +7,8 @@ import {
   speechToSpeeches, type SpeechToSpeech, type InsertSpeechToSpeech,
   activities, type Activity, type InsertActivity
 } from "@shared/schema";
+import { db } from "./db";
+import { eq, desc, and, sql } from "drizzle-orm";
 
 // Storage interface with all CRUD methods
 export interface IStorage {
@@ -48,6 +50,7 @@ export interface IStorage {
   getUserSpeechToSpeeches(userId: number): Promise<SpeechToSpeech[]>;
 }
 
+// In-memory storage implementation (replaced by DatabaseStorage for production)
 export class MemStorage implements IStorage {
   private users: Map<number, User>;
   private userStats: Map<number, UserStats>;
@@ -258,4 +261,189 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+export class DatabaseStorage implements IStorage {
+  // User methods
+  async getUser(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
+  }
+  
+  async getUserByFirebaseId(firebaseId: string): Promise<User | undefined> {
+    if (!firebaseId) return undefined;
+    const [user] = await db.select().from(users).where(eq(users.firebaseId, firebaseId));
+    return user;
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const [user] = await db.insert(users).values(insertUser).returning();
+    return user;
+  }
+  
+  async updateUser(id: number, data: Partial<InsertUser>): Promise<User | undefined> {
+    const [updatedUser] = await db
+      .update(users)
+      .set(data)
+      .where(eq(users.id, id))
+      .returning();
+    return updatedUser;
+  }
+  
+  async deleteUser(id: number): Promise<boolean> {
+    const [deletedUser] = await db
+      .delete(users)
+      .where(eq(users.id, id))
+      .returning({ id: users.id });
+    return !!deletedUser;
+  }
+  
+  // User Stats methods
+  async getUserStats(userId: number): Promise<UserStats | undefined> {
+    const [stats] = await db
+      .select()
+      .from(userStats)
+      .where(eq(userStats.userId, userId));
+    return stats;
+  }
+  
+  async createUserStats(stats: InsertUserStats): Promise<UserStats> {
+    const [createdStats] = await db
+      .insert(userStats)
+      .values(stats)
+      .returning();
+    return createdStats;
+  }
+  
+  async updateUserStats(userId: number, data: Partial<InsertUserStats>): Promise<UserStats | undefined> {
+    const [updatedStats] = await db
+      .update(userStats)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(userStats.userId, userId))
+      .returning();
+    return updatedStats;
+  }
+  
+  // Activity methods
+  async getUserActivities(userId: number, limit = 10): Promise<Activity[]> {
+    return db
+      .select()
+      .from(activities)
+      .where(eq(activities.userId, userId))
+      .orderBy(desc(activities.createdAt))
+      .limit(limit);
+  }
+  
+  async createActivity(activity: InsertActivity): Promise<Activity> {
+    const [createdActivity] = await db
+      .insert(activities)
+      .values(activity)
+      .returning();
+    return createdActivity;
+  }
+  
+  // Transcription methods
+  async createTranscription(transcription: InsertTranscription): Promise<Transcription> {
+    const [createdTranscription] = await db
+      .insert(transcriptions)
+      .values(transcription)
+      .returning();
+    return createdTranscription;
+  }
+  
+  async getTranscription(id: number): Promise<Transcription | undefined> {
+    const [transcription] = await db
+      .select()
+      .from(transcriptions)
+      .where(eq(transcriptions.id, id));
+    return transcription;
+  }
+  
+  async getUserTranscriptions(userId: number): Promise<Transcription[]> {
+    return db
+      .select()
+      .from(transcriptions)
+      .where(eq(transcriptions.userId, userId))
+      .orderBy(desc(transcriptions.createdAt));
+  }
+  
+  // Translation methods
+  async createTranslation(translation: InsertTranslation): Promise<Translation> {
+    const [createdTranslation] = await db
+      .insert(translations)
+      .values(translation)
+      .returning();
+    return createdTranslation;
+  }
+  
+  async getTranslation(id: number): Promise<Translation | undefined> {
+    const [translation] = await db
+      .select()
+      .from(translations)
+      .where(eq(translations.id, id));
+    return translation;
+  }
+  
+  async getUserTranslations(userId: number): Promise<Translation[]> {
+    return db
+      .select()
+      .from(translations)
+      .where(eq(translations.userId, userId))
+      .orderBy(desc(translations.createdAt));
+  }
+  
+  // Text-to-Speech methods
+  async createTextToSpeech(tts: InsertTextToSpeech): Promise<TextToSpeech> {
+    const [createdTTS] = await db
+      .insert(textToSpeeches)
+      .values(tts)
+      .returning();
+    return createdTTS;
+  }
+  
+  async getTextToSpeech(id: number): Promise<TextToSpeech | undefined> {
+    const [tts] = await db
+      .select()
+      .from(textToSpeeches)
+      .where(eq(textToSpeeches.id, id));
+    return tts;
+  }
+  
+  async getUserTextToSpeeches(userId: number): Promise<TextToSpeech[]> {
+    return db
+      .select()
+      .from(textToSpeeches)
+      .where(eq(textToSpeeches.userId, userId))
+      .orderBy(desc(textToSpeeches.createdAt));
+  }
+  
+  // Speech-to-Speech methods
+  async createSpeechToSpeech(sts: InsertSpeechToSpeech): Promise<SpeechToSpeech> {
+    const [createdSTS] = await db
+      .insert(speechToSpeeches)
+      .values(sts)
+      .returning();
+    return createdSTS;
+  }
+  
+  async getSpeechToSpeech(id: number): Promise<SpeechToSpeech | undefined> {
+    const [sts] = await db
+      .select()
+      .from(speechToSpeeches)
+      .where(eq(speechToSpeeches.id, id));
+    return sts;
+  }
+  
+  async getUserSpeechToSpeeches(userId: number): Promise<SpeechToSpeech[]> {
+    return db
+      .select()
+      .from(speechToSpeeches)
+      .where(eq(speechToSpeeches.userId, userId))
+      .orderBy(desc(speechToSpeeches.createdAt));
+  }
+}
+
+export const storage = new DatabaseStorage();
