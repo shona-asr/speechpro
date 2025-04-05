@@ -29,9 +29,9 @@ export async function transcribeAudio(
       text: result.text,
       durationSeconds: result.durationSeconds
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error transcribing audio:', error);
-    throw new Error(`Transcription failed: ${error.message}`);
+    throw new Error(`Transcription failed: ${error.message || 'Unknown error'}`);
   }
 }
 
@@ -54,9 +54,9 @@ export async function translateText(
     return {
       translatedText: result.translatedText
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error translating text:', error);
-    throw new Error(`Translation failed: ${error.message}`);
+    throw new Error(`Translation failed: ${error.message || 'Unknown error'}`);
   }
 }
 
@@ -80,9 +80,9 @@ export async function textToSpeech(
       audioUrl: result.audioUrl,
       durationSeconds: result.durationSeconds
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error converting text to speech:', error);
-    throw new Error(`Text-to-speech conversion failed: ${error.message}`);
+    throw new Error(`Text-to-speech conversion failed: ${error.message || 'Unknown error'}`);
   }
 }
 
@@ -91,7 +91,7 @@ export async function textToSpeech(
  * @param audioFilePath Path to the audio file
  * @param sourceLanguage Source language code (e.g., 'en-US')
  * @param targetLanguage Target language code (e.g., 'es-ES')
- * @returns Speech-to-speech result
+ * @returns Speech-to-speech result with original text, translated text, and audio URL
  */
 export async function speechToSpeech(
   audioFilePath: string,
@@ -100,23 +100,54 @@ export async function speechToSpeech(
 ) {
   try {
     // Step 1: Transcribe audio to text in source language
+    console.log(`Transcribing audio from ${sourceLanguage}...`);
     const transcriptionResult = await transcribeAudio(audioFilePath, sourceLanguage);
+    
+    if (!transcriptionResult.text || transcriptionResult.text.trim() === '') {
+      throw new Error('Failed to transcribe audio: No text was recognized');
+    }
+    
+    console.log(`Transcription successful: "${transcriptionResult.text.substring(0, 50)}${transcriptionResult.text.length > 50 ? '...' : ''}"`);
     
     // Step 2: Translate text to target language
     // Convert language codes if necessary (speech-to-text vs translation format)
     const sourceTranslationLang = sourceLanguage.split('-')[0];
     const targetTranslationLang = targetLanguage.split('-')[0];
     
+    console.log(`Translating from ${sourceTranslationLang} to ${targetTranslationLang}...`);
     const translationResult = await translateText(
       transcriptionResult.text,
       sourceTranslationLang,
       targetTranslationLang
     );
     
-    // Step 3: Convert translated text to speech in target language
-    // Select an appropriate voice for the target language
-    const voice = `${targetLanguage}-Standard-A`;
+    if (!translationResult.translatedText || translationResult.translatedText.trim() === '') {
+      throw new Error('Failed to translate text: No translation was returned');
+    }
     
+    console.log(`Translation successful: "${translationResult.translatedText.substring(0, 50)}${translationResult.translatedText.length > 50 ? '...' : ''}"`);
+    
+    // Step 3: Convert translated text to speech in target language
+    // Select voice based on target language
+    let voice = `${targetLanguage}-Standard-A`;
+    
+    // Voice selection based on common language codes
+    // This could be expanded or made configurable
+    if (targetLanguage.startsWith('en')) {
+      voice = `${targetLanguage}-Wavenet-D`; // Higher quality voice for English
+    } else if (targetLanguage.startsWith('es')) {
+      voice = `${targetLanguage}-Neural2-B`;
+    } else if (targetLanguage.startsWith('fr')) {
+      voice = `${targetLanguage}-Neural2-A`;
+    } else if (targetLanguage.startsWith('de')) {
+      voice = `${targetLanguage}-Neural2-B`;
+    } else if (targetLanguage.startsWith('ja')) {
+      voice = `${targetLanguage}-Wavenet-B`;
+    } else if (targetLanguage.startsWith('zh')) {
+      voice = `${targetLanguage}-Wavenet-D`;
+    }
+    
+    console.log(`Synthesizing speech in ${targetLanguage} using voice ${voice}...`);
     const ttsResult = await textToSpeech(
       translationResult.translatedText,
       targetLanguage,
@@ -124,11 +155,13 @@ export async function speechToSpeech(
     );
     
     return {
+      sourceText: transcriptionResult.text,
+      translatedText: translationResult.translatedText,
       audioUrl: ttsResult.audioUrl,
       durationSeconds: ttsResult.durationSeconds || transcriptionResult.durationSeconds
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in speech-to-speech translation:', error);
-    throw new Error(`Speech-to-speech translation failed: ${error.message}`);
+    throw new Error(`Speech-to-speech translation failed: ${error.message || 'Unknown error'}`);
   }
 }

@@ -330,6 +330,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Source and target languages are required" });
       }
       
+      console.log(`Processing speech-to-speech translation: ${req.file.originalname} from ${sourceLanguage} to ${targetLanguage}`);
+      
       // Convert speech to speech
       const stsResult = await speechToSpeech(req.file.path, sourceLanguage, targetLanguage);
       
@@ -339,14 +341,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         fileName: req.file.originalname,
         sourceLanguage,
         targetLanguage,
+        sourceText: stsResult.sourceText,
+        translatedText: stsResult.translatedText,
+        audioUrl: stsResult.audioUrl,
         durationSeconds: stsResult.durationSeconds || 0
       };
       
       const sts = await storage.createSpeechToSpeech(stsData);
       
       // Update user stats
+      const minutes = Math.ceil(stsResult.durationSeconds / 60);
+      const wordCount = stsResult.translatedText.split(/\s+/).length;
+      
       await storage.updateUserStats(req.user!.id, {
-        minutesTranscribed: Math.ceil(stsResult.durationSeconds / 60),
+        minutesTranscribed: minutes,
+        wordsTranslated: wordCount,
         speechGenerated: stsResult.durationSeconds || 0
       });
       
@@ -356,18 +365,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         activityType: "speechToSpeech",
         activityId: sts.id,
         details: JSON.stringify({
-          description: `Translated speech from ${sourceLanguage} to ${targetLanguage} (${formatDuration(stsResult.durationSeconds)})`
+          description: `Translated speech from ${sourceLanguage} to ${targetLanguage} (${formatDuration(stsResult.durationSeconds)})`,
+          sourceText: truncateText(stsResult.sourceText, 50),
+          translatedText: truncateText(stsResult.translatedText, 50)
         })
       });
       
       res.json({
         id: sts.id,
+        sourceText: stsResult.sourceText,
+        translatedText: stsResult.translatedText,
         audioUrl: stsResult.audioUrl,
         durationSeconds: stsResult.durationSeconds
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Speech-to-Speech error:", error);
-      res.status(500).json({ message: "Failed to translate speech" });
+      res.status(500).json({ message: `Failed to translate speech: ${error.message || 'Unknown error'}` });
     }
   });
 

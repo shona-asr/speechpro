@@ -17,6 +17,8 @@ const SpeechToSpeechModal = ({ isOpen, onClose }: SpeechToSpeechModalProps) => {
   const [sourceLanguage, setSourceLanguage] = useState("en-US");
   const [targetLanguage, setTargetLanguage] = useState("es-ES");
   const [audioUrl, setAudioUrl] = useState("");
+  const [sourceText, setSourceText] = useState("");
+  const [translatedText, setTranslatedText] = useState("");
   const { speechToSpeech } = useSpeechServices();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -35,6 +37,8 @@ const SpeechToSpeechModal = ({ isOpen, onClose }: SpeechToSpeechModalProps) => {
         targetLanguage,
       });
       setAudioUrl(result.audioUrl);
+      setSourceText(result.sourceText || "");
+      setTranslatedText(result.translatedText || "");
     } catch (error) {
       console.error("Speech-to-Speech error:", error);
     }
@@ -112,6 +116,24 @@ const SpeechToSpeechModal = ({ isOpen, onClose }: SpeechToSpeechModalProps) => {
               </Select>
             </div>
           </div>
+
+          {sourceText && (
+            <div className="space-y-2">
+              <Label>Recognized Text ({sourceLanguage})</Label>
+              <div className="p-3 bg-gray-50 rounded-md border">
+                {sourceText}
+              </div>
+            </div>
+          )}
+
+          {translatedText && (
+            <div className="space-y-2">
+              <Label>Translated Text ({targetLanguage})</Label>
+              <div className="p-3 bg-gray-50 rounded-md border">
+                {translatedText}
+              </div>
+            </div>
+          )}
 
           {audioUrl && (
             <div className="space-y-2">

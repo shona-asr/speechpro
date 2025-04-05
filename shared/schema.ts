@@ -75,6 +75,9 @@ export const speechToSpeeches = pgTable("speech_to_speeches", {
   fileName: text("file_name").notNull(),
   sourceLanguage: text("source_language").notNull(),
   targetLanguage: text("target_language").notNull(),
+  sourceText: text("source_text"),
+  translatedText: text("translated_text"),
+  audioUrl: text("audio_url"),
   durationSeconds: integer("duration_seconds").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
