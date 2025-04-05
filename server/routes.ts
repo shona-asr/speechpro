@@ -1,243 +1,402 @@
-import type { Express, Request, Response } from "express";
+import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { WebSocketServer } from "ws";
+import multer from "multer";
 import { storage } from "./storage";
-import * as googleCloud from "./services/googleCloud";
-import { authMiddleware } from "./middleware/auth";
+import { authenticate } from "./middleware/auth";
+import { configureMulter } from "./middleware/upload";
+import { 
+  transcribeAudio, 
+  translateText, 
+  textToSpeech, 
+  speechToSpeech 
+} from "./services/speechServices";
+import { 
+  users, 
+  transcriptions, 
+  translations, 
+  textToSpeeches, 
+  speechToSpeeches, 
+  activities, 
+  userStats, 
+  insertUserSchema, 
+  insertTranscriptionSchema, 
+  insertTranslationSchema, 
+  insertTextToSpeechSchema, 
+  insertSpeechToSpeechSchema 
+} from "@shared/schema";
+import { ZodError } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Authentication middleware
-  app.use("/api/*", authMiddleware);
+  const httpServer = createServer(app);
+  const upload = configureMulter();
+  
+  // Set up WebSocket server for realtime speech processing
+  const wss = new WebSocketServer({ server: httpServer, path: "/api/realtime" });
+  
+  wss.on("connection", (ws) => {
+    console.log("WebSocket client connected");
+    
+    ws.on("message", async (message) => {
+      try {
+        const data = JSON.parse(message.toString());
+        // Process incoming audio chunks for realtime transcription
+        // This is a simplified implementation
+        if (data.audio && data.language) {
+          // In a real implementation, we would process the audio chunk
+          // and send back the transcription
+          setTimeout(() => {
+            ws.send(JSON.stringify({
+              transcription: "This is a realtime transcription."
+            }));
+          }, 500);
+        }
+      } catch (error) {
+        console.error("Error processing WebSocket message:", error);
+        ws.send(JSON.stringify({ error: "Failed to process audio" }));
+      }
+    });
+    
+    ws.on("close", () => {
+      console.log("WebSocket client disconnected");
+    });
+  });
+
+  // === API Routes ===
 
   // User routes
-  app.get("/api/user", async (req: Request, res: Response) => {
+  app.post("/api/users", async (req, res) => {
     try {
-      const userId = req.userId;
-      if (!userId) {
-        return res.status(401).json({ message: "Unauthorized" });
+      const userData = insertUserSchema.parse(req.body);
+      const user = await storage.createUser(userData);
+      
+      // Initialize user stats
+      await storage.createUserStats({
+        userId: user.id,
+        minutesTranscribed: 0,
+        wordsTranslated: 0,
+        speechGenerated: 0,
+        activeProjects: 0,
+        usageCost: 0
+      });
+      
+      res.status(201).json({ id: user.id });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        res.status(400).json({ message: error.errors });
+      } else {
+        res.status(500).json({ message: "Failed to create user" });
       }
+    }
+  });
 
-      const user = await storage.getUser(userId);
+  app.get("/api/user/profile", authenticate, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
-
-      // Don't send password in response
-      const { password, ...userWithoutPassword } = user;
-      res.json(userWithoutPassword);
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      res.status(500).json({ message: "Server error" });
-    }
-  });
-
-  // Dashboard stats
-  app.get("/api/stats", async (req: Request, res: Response) => {
-    try {
-      const userId = req.userId;
-      if (!userId) {
-        return res.status(401).json({ message: "Unauthorized" });
-      }
-
-      const stats = await storage.getUserStats(userId);
-      res.json(stats || { 
-        minutesTranscribed: 0, 
-        charactersTranslated: 0,
-        textToSpeechRequests: 0,
-        realtimeModeMinutes: 0
+      
+      // Return only necessary user information
+      res.json({
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName || user.email?.split('@')[0] || 'User'
       });
     } catch (error) {
-      console.error("Error fetching stats:", error);
-      res.status(500).json({ message: "Server error" });
+      res.status(500).json({ message: "Failed to get user profile" });
     }
   });
 
-  // Recent activity
-  app.get("/api/activity", async (req: Request, res: Response) => {
+  app.put("/api/user/profile", authenticate, async (req, res) => {
     try {
-      const userId = req.userId;
-      if (!userId) {
-        return res.status(401).json({ message: "Unauthorized" });
+      const { displayName } = req.body;
+      
+      if (typeof displayName !== 'string' || !displayName.trim()) {
+        return res.status(400).json({ message: "Display name is required" });
       }
-
-      const transcriptions = await storage.getUserTranscriptions(userId, 5);
-      const translations = await storage.getUserTranslations(userId, 5);
-      const ttsRequests = await storage.getUserTextToSpeech(userId, 5);
-
-      // Combine and sort by date
-      const activities = [
-        ...transcriptions.map(t => ({ ...t, type: 'transcription' })),
-        ...translations.map(t => ({ ...t, type: 'translation' })),
-        ...ttsRequests.map(t => ({ ...t, type: 'text-to-speech' }))
-      ].sort((a, b) => {
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      }).slice(0, 10);
-
-      res.json(activities);
+      
+      await storage.updateUser(req.user!.id, { displayName });
+      res.json({ message: "Profile updated successfully" });
     } catch (error) {
-      console.error("Error fetching activity:", error);
-      res.status(500).json({ message: "Server error" });
+      res.status(500).json({ message: "Failed to update profile" });
     }
   });
 
-  // Transcription endpoint
-  app.post("/api/transcribe", async (req: Request, res: Response) => {
+  app.delete("/api/user", authenticate, async (req, res) => {
     try {
-      const userId = req.userId;
-      if (!userId) {
-        return res.status(401).json({ message: "Unauthorized" });
+      await storage.deleteUser(req.user!.id);
+      res.json({ message: "Account deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete account" });
+    }
+  });
+
+  // Statistics routes
+  app.get("/api/user-stats", authenticate, async (req, res) => {
+    try {
+      const stats = await storage.getUserStats(req.user!.id);
+      if (!stats) {
+        return res.status(404).json({ message: "Stats not found" });
+      }
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get user statistics" });
+    }
+  });
+
+  // Activity routes
+  app.get("/api/recent-activities", authenticate, async (req, res) => {
+    try {
+      const activities = await storage.getUserActivities(req.user!.id, 10);
+      res.json(activities.map(activity => ({
+        id: activity.id,
+        type: activity.activityType,
+        title: getActivityTitle(activity.activityType),
+        description: activity.details ? JSON.parse(activity.details as string).description : '',
+        timestamp: activity.createdAt
+      })));
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get recent activities" });
+    }
+  });
+
+  // Transcription routes
+  app.post("/api/transcribe", authenticate, upload.single("audio"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No audio file provided" });
       }
 
-      const { audioData, language, fileName, fileSize, duration } = req.body;
+      const language = req.body.language || "en-US";
+      const options = req.body.options ? JSON.parse(req.body.options) : {};
       
-      if (!audioData || !language) {
-        return res.status(400).json({ message: "Missing required fields" });
-      }
-
-      // Convert base64 to buffer
-      const audioBuffer = Buffer.from(audioData.split(',')[1], 'base64');
+      // Transcribe the audio file
+      const transcriptionResult = await transcribeAudio(req.file.path, language, options);
       
-      // Send to Google Cloud Speech-to-Text
-      const transcription = await googleCloud.transcribeAudio(audioBuffer, language);
+      // Save the transcription to the database
+      const transcriptionData = {
+        userId: req.user!.id,
+        fileName: req.file.originalname,
+        originalLanguage: language,
+        durationSeconds: transcriptionResult.durationSeconds || 0,
+        content: transcriptionResult.text
+      };
       
-      // Store the transcription
-      const newTranscription = await storage.createTranscription({
-        userId,
-        fileName,
-        fileSize,
-        language,
-        duration,
-        text: transcription
+      const transcription = await storage.createTranscription(transcriptionData);
+      
+      // Update user stats
+      await storage.updateUserStats(req.user!.id, {
+        minutesTranscribed: Math.ceil(transcriptionResult.durationSeconds / 60)
       });
-
-      // Update usage stats
-      if (duration) {
-        await storage.updateTranscriptionStats(userId, Math.ceil(duration / 60));
-      }
-
-      res.json(newTranscription);
+      
+      // Record activity
+      await storage.createActivity({
+        userId: req.user!.id,
+        activityType: "transcription",
+        activityId: transcription.id,
+        details: JSON.stringify({
+          description: `Successfully transcribed "${req.file.originalname}" (${formatDuration(transcriptionResult.durationSeconds)})`
+        })
+      });
+      
+      res.json({
+        id: transcription.id,
+        text: transcriptionResult.text,
+        durationSeconds: transcriptionResult.durationSeconds
+      });
     } catch (error) {
-      console.error("Error during transcription:", error);
-      res.status(500).json({ message: "Transcription failed" });
+      console.error("Transcription error:", error);
+      res.status(500).json({ message: "Failed to transcribe audio" });
     }
   });
 
-  // Translation endpoint
-  app.post("/api/translate", async (req: Request, res: Response) => {
+  // Translation routes
+  app.post("/api/translate", authenticate, async (req, res) => {
     try {
-      const userId = req.userId;
-      if (!userId) {
-        return res.status(401).json({ message: "Unauthorized" });
-      }
-
       const { text, sourceLanguage, targetLanguage } = req.body;
       
       if (!text || !sourceLanguage || !targetLanguage) {
-        return res.status(400).json({ message: "Missing required fields" });
+        return res.status(400).json({ message: "Text, source language, and target language are required" });
       }
       
-      // Send to Google Cloud Translation
-      const translatedText = await googleCloud.translateText(text, sourceLanguage, targetLanguage);
+      // Translate the text
+      const translationResult = await translateText(text, sourceLanguage, targetLanguage);
       
-      // Store the translation
-      const newTranslation = await storage.createTranslation({
-        userId,
+      // Calculate word count
+      const wordCount = text.split(/\s+/).length;
+      
+      // Save the translation to the database
+      const translationData = {
+        userId: req.user!.id,
+        sourceText: text,
         sourceLanguage,
         targetLanguage,
-        originalText: text,
-        translatedText
+        translatedText: translationResult.translatedText,
+        wordCount
+      };
+      
+      const translation = await storage.createTranslation(translationData);
+      
+      // Update user stats
+      await storage.updateUserStats(req.user!.id, {
+        wordsTranslated: wordCount
       });
-
-      // Update usage stats
-      await storage.updateTranslationStats(userId, text.length);
-
-      res.json(newTranslation);
+      
+      // Record activity
+      await storage.createActivity({
+        userId: req.user!.id,
+        activityType: "translation",
+        activityId: translation.id,
+        details: JSON.stringify({
+          description: `Translated text from ${sourceLanguage} to ${targetLanguage} (${wordCount} words)`
+        })
+      });
+      
+      res.json({
+        id: translation.id,
+        translatedText: translationResult.translatedText,
+        wordCount
+      });
     } catch (error) {
-      console.error("Error during translation:", error);
-      res.status(500).json({ message: "Translation failed" });
+      console.error("Translation error:", error);
+      res.status(500).json({ message: "Failed to translate text" });
     }
   });
 
-  // Text-to-Speech endpoint
-  app.post("/api/text-to-speech", async (req: Request, res: Response) => {
+  // Text-to-Speech routes
+  app.post("/api/text-to-speech", authenticate, async (req, res) => {
     try {
-      const userId = req.userId;
-      if (!userId) {
-        return res.status(401).json({ message: "Unauthorized" });
-      }
-
       const { text, language, voice } = req.body;
       
-      if (!text || !language) {
-        return res.status(400).json({ message: "Missing required fields" });
+      if (!text || !language || !voice) {
+        return res.status(400).json({ message: "Text, language, and voice are required" });
       }
       
-      // Send to Google Cloud Text-to-Speech
-      const audioContent = await googleCloud.textToSpeech(text, language, voice);
+      // Convert text to speech
+      const ttsResult = await textToSpeech(text, language, voice);
       
-      // Store the text-to-speech request
-      const newTtsRequest = await storage.createTextToSpeech({
-        userId,
+      // Calculate word count
+      const wordCount = text.split(/\s+/).length;
+      
+      // Save the text-to-speech to the database
+      const ttsData = {
+        userId: req.user!.id,
         text,
         language,
-        voice
+        voice,
+        audioUrl: ttsResult.audioUrl,
+        wordCount
+      };
+      
+      const tts = await storage.createTextToSpeech(ttsData);
+      
+      // Update user stats
+      await storage.updateUserStats(req.user!.id, {
+        speechGenerated: ttsResult.durationSeconds || 0
       });
-
-      // Update usage stats
-      await storage.updateTextToSpeechStats(userId);
-
+      
+      // Record activity
+      await storage.createActivity({
+        userId: req.user!.id,
+        activityType: "textToSpeech",
+        activityId: tts.id,
+        details: JSON.stringify({
+          description: `Generated speech for "${truncateText(text, 30)}" (${wordCount} words)`
+        })
+      });
+      
       res.json({
-        id: newTtsRequest.id,
-        audioContent
+        id: tts.id,
+        audioUrl: ttsResult.audioUrl,
+        durationSeconds: ttsResult.durationSeconds
       });
     } catch (error) {
-      console.error("Error during text-to-speech:", error);
-      res.status(500).json({ message: "Text-to-speech conversion failed" });
+      console.error("Text-to-Speech error:", error);
+      res.status(500).json({ message: "Failed to convert text to speech" });
     }
   });
 
-  // Speech-to-Speech endpoint
-  app.post("/api/speech-to-speech", async (req: Request, res: Response) => {
+  // Speech-to-Speech routes
+  app.post("/api/speech-to-speech", authenticate, upload.single("audio"), async (req, res) => {
     try {
-      const userId = req.userId;
-      if (!userId) {
-        return res.status(401).json({ message: "Unauthorized" });
+      if (!req.file) {
+        return res.status(400).json({ message: "No audio file provided" });
       }
 
-      const { audioData, sourceLanguage, targetLanguage, voice } = req.body;
+      const { sourceLanguage, targetLanguage } = req.body;
       
-      if (!audioData || !sourceLanguage || !targetLanguage) {
-        return res.status(400).json({ message: "Missing required fields" });
+      if (!sourceLanguage || !targetLanguage) {
+        return res.status(400).json({ message: "Source and target languages are required" });
       }
-
-      // Convert base64 to buffer
-      const audioBuffer = Buffer.from(audioData.split(',')[1], 'base64');
       
-      // Step 1: Transcribe audio
-      const transcription = await googleCloud.transcribeAudio(audioBuffer, sourceLanguage);
+      // Convert speech to speech
+      const stsResult = await speechToSpeech(req.file.path, sourceLanguage, targetLanguage);
       
-      // Step 2: Translate text
-      const translatedText = await googleCloud.translateText(transcription, sourceLanguage, targetLanguage);
+      // Save the speech-to-speech to the database
+      const stsData = {
+        userId: req.user!.id,
+        fileName: req.file.originalname,
+        sourceLanguage,
+        targetLanguage,
+        durationSeconds: stsResult.durationSeconds || 0
+      };
       
-      // Step 3: Convert translated text to speech
-      const audioContent = await googleCloud.textToSpeech(translatedText, targetLanguage, voice);
+      const sts = await storage.createSpeechToSpeech(stsData);
       
-      // Update usage stats (both transcription and TTS)
-      await storage.updateTranscriptionStats(userId, 1); // Assuming 1 minute for simplicity
-      await storage.updateTextToSpeechStats(userId);
-
+      // Update user stats
+      await storage.updateUserStats(req.user!.id, {
+        minutesTranscribed: Math.ceil(stsResult.durationSeconds / 60),
+        speechGenerated: stsResult.durationSeconds || 0
+      });
+      
+      // Record activity
+      await storage.createActivity({
+        userId: req.user!.id,
+        activityType: "speechToSpeech",
+        activityId: sts.id,
+        details: JSON.stringify({
+          description: `Translated speech from ${sourceLanguage} to ${targetLanguage} (${formatDuration(stsResult.durationSeconds)})`
+        })
+      });
+      
       res.json({
-        originalText: transcription,
-        translatedText,
-        audioContent
+        id: sts.id,
+        audioUrl: stsResult.audioUrl,
+        durationSeconds: stsResult.durationSeconds
       });
     } catch (error) {
-      console.error("Error during speech-to-speech:", error);
-      res.status(500).json({ message: "Speech-to-speech conversion failed" });
+      console.error("Speech-to-Speech error:", error);
+      res.status(500).json({ message: "Failed to translate speech" });
     }
   });
-
-  // Create HTTP server
-  const httpServer = createServer(app);
 
   return httpServer;
+}
+
+// Helper functions
+function getActivityTitle(activityType: string): string {
+  switch (activityType) {
+    case "transcription":
+      return "Transcribed Audio";
+    case "translation":
+      return "Translated Content";
+    case "textToSpeech":
+      return "Generated Speech";
+    case "speechToSpeech":
+      return "Translated Speech";
+    default:
+      return "Activity";
+  }
+}
+
+function formatDuration(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.floor(seconds % 60);
+  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+}
+
+function truncateText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength) + "...";
 }

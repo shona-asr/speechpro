@@ -1,134 +1,83 @@
-import { useState } from "react";
-import { Link, useLocation } from "wouter";
+import { Fragment, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { Button } from "@/components/ui/button";
-import { 
+import { Link, useLocation } from "wouter";
+import { Menu } from "lucide-react";
+import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MicOff } from "lucide-react";
 
-const Header = () => {
+interface HeaderProps {
+  toggleSidebar: () => void;
+}
+
+const Header = ({ toggleSidebar }: HeaderProps) => {
+  const [location] = useLocation();
   const { user, logout } = useAuth();
-  const [location, setLocation] = useLocation();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  const handleLogout = async () => {
-    try {
-      await logout();
-      setLocation("/login");
-    } catch (error) {
-      console.error("Error logging out:", error);
-    }
+  
+  // Extract page title from location
+  const getPageTitle = () => {
+    const path = location.split("/")[1];
+    if (!path) return "Login";
+    return path.charAt(0).toUpperCase() + path.slice(1).replace(/-/g, " ");
   };
 
   return (
-    <header className="bg-white border-b border-gray-200 px-4 py-2.5 sticky top-0 z-10">
-      <div className="container mx-auto flex justify-between items-center">
-        {/* Logo */}
-        <Link href="/">
-          <div className="flex items-center space-x-2 cursor-pointer">
-            <div className="text-primary-600">
-              <MicOff className="h-6 w-6" />
-            </div>
-            <h1 className="text-xl font-semibold text-gray-900">
-              <span className="text-primary-600">Speech</span> AI
-            </h1>
-          </div>
-        </Link>
-        
-        {/* Navigation - Desktop */}
-        <nav className="hidden md:flex space-x-6">
-          <Link href="/">
-            <a className="px-1 py-2 text-gray-700 font-medium hover:text-primary-600 transition-colors">
-              Home
-            </a>
-          </Link>
-          <Link href="/about">
-            <a className="px-1 py-2 text-gray-700 font-medium hover:text-primary-600 transition-colors">
-              About
-            </a>
-          </Link>
-          <Link href="/features">
-            <a className="px-1 py-2 text-gray-700 font-medium hover:text-primary-600 transition-colors">
-              Features
-            </a>
-          </Link>
-          <Link href="/pricing">
-            <a className="px-1 py-2 text-gray-700 font-medium hover:text-primary-600 transition-colors">
-              Pricing
-            </a>
-          </Link>
-        </nav>
-
-        {/* Auth Buttons */}
-        <div className="flex items-center space-x-2">
-          {user ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="flex items-center space-x-2">
-                  <span className="text-sm text-gray-700">{user.email}</span>
-                  <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-700">
-                    {user.photoURL ? (
-                      <img 
-                        src={user.photoURL} 
-                        alt={user.displayName || "User"} 
-                        className="rounded-full w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="text-sm font-medium">
-                        {user.email?.charAt(0).toUpperCase() || "U"}
-                      </div>
-                    )}
-                  </div>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-48">
-                <DropdownMenuLabel>My Account</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <Link href="/dashboard">
-                    <DropdownMenuItem className="cursor-pointer">
-                      Dashboard
-                    </DropdownMenuItem>
-                  </Link>
-                  <Link href="/profile">
-                    <DropdownMenuItem className="cursor-pointer">
-                      Profile
-                    </DropdownMenuItem>
-                  </Link>
-                  <Link href="/settings">
-                    <DropdownMenuItem className="cursor-pointer">
-                      Settings
-                    </DropdownMenuItem>
-                  </Link>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
-                  Logout
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <>
-              <Link href="/login">
-                <Button variant="ghost" className="text-gray-700">
-                  Sign In
-                </Button>
-              </Link>
-              <Link href="/register">
-                <Button className="bg-primary-600 text-white hover:bg-primary-700">
-                  Sign Up
-                </Button>
-              </Link>
-            </>
-          )}
+    <header className="bg-white border-b border-gray-200">
+      <div className="flex items-center justify-between p-4">
+        <div className="flex items-center">
+          {/* Mobile menu button */}
+          <button
+            onClick={toggleSidebar}
+            className="lg:hidden text-gray-500 focus:outline-none"
+          >
+            <Menu className="h-6 w-6" />
+          </button>
+          <h1 className="ml-4 lg:ml-0 text-xl font-semibold text-gray-800">
+            {getPageTitle()}
+          </h1>
         </div>
+
+        {/* User menu */}
+        {user && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex items-center text-sm rounded-full focus:outline-none focus:ring-2 focus:ring-primary">
+                <span className="mr-2 text-gray-600">{user.email}</span>
+                <svg
+                  className="w-5 h-5 text-gray-400"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                    clipRule="evenodd"
+                  ></path>
+                </svg>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem asChild>
+                <Link href="/profile" className="w-full cursor-pointer">
+                  My Account
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/dashboard" className="w-full cursor-pointer">
+                  Dashboard
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => logout()} className="cursor-pointer">
+                Logout
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
     </header>
   );

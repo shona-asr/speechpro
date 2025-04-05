@@ -1,66 +1,32 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, json, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// User table for authentication details
+// User schema
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
-  password: text("password"),
   email: text("email").notNull().unique(),
-  firebaseUid: text("firebase_uid").notNull().unique(),
+  password: text("password"),
   displayName: text("display_name"),
-  photoURL: text("photo_url"),
-  provider: text("provider"),
+  firebaseId: text("firebase_id").unique(),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Transcription table for storing transcription history
+export const insertUserSchema = createInsertSchema(users).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Transcription schema
 export const transcriptions = pgTable("transcriptions", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
-  fileName: text("file_name"),
-  fileSize: integer("file_size"),
-  language: text("language").notNull(),
-  duration: integer("duration"), // in seconds
-  text: text("text").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-// Translation table for storing translation history
-export const translations = pgTable("translations", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull(),
-  sourceLanguage: text("source_language").notNull(),
-  targetLanguage: text("target_language").notNull(),
-  originalText: text("original_text").notNull(),
-  translatedText: text("translated_text").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-// Text-to-Speech table for storing TTS history
-export const textToSpeech = pgTable("text_to_speech", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull(),
-  text: text("text").notNull(),
-  language: text("language").notNull(),
-  voice: text("voice"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-// Usage statistics table for tracking user usage
-export const usageStats = pgTable("usage_stats", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().unique(),
-  minutesTranscribed: integer("minutes_transcribed").default(0).notNull(),
-  charactersTranslated: integer("characters_translated").default(0).notNull(),
-  textToSpeechRequests: integer("text_to_speech_requests").default(0).notNull(),
-  realtimeModeMinutes: integer("realtime_mode_minutes").default(0).notNull(),
-  lastUpdated: timestamp("last_updated").defaultNow().notNull(),
-});
-
-// Insert Schemas
-export const insertUserSchema = createInsertSchema(users).omit({
-  id: true,
+  fileName: text("file_name").notNull(),
+  originalLanguage: text("original_language").notNull(),
+  durationSeconds: integer("duration_seconds").notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const insertTranscriptionSchema = createInsertSchema(transcriptions).omit({
@@ -68,33 +34,106 @@ export const insertTranscriptionSchema = createInsertSchema(transcriptions).omit
   createdAt: true,
 });
 
+// Translation schema
+export const translations = pgTable("translations", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  sourceText: text("source_text").notNull(),
+  sourceLanguage: text("source_language").notNull(),
+  targetLanguage: text("target_language").notNull(),
+  translatedText: text("translated_text").notNull(),
+  wordCount: integer("word_count").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const insertTranslationSchema = createInsertSchema(translations).omit({
   id: true,
   createdAt: true,
 });
 
-export const insertTextToSpeechSchema = createInsertSchema(textToSpeech).omit({
+// Text To Speech schema
+export const textToSpeeches = pgTable("text_to_speeches", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  text: text("text").notNull(),
+  language: text("language").notNull(),
+  voice: text("voice").notNull(),
+  audioUrl: text("audio_url").notNull(),
+  wordCount: integer("word_count").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertTextToSpeechSchema = createInsertSchema(textToSpeeches).omit({
   id: true,
   createdAt: true,
 });
 
-export const insertUsageStatsSchema = createInsertSchema(usageStats).omit({
+// Speech To Speech schema
+export const speechToSpeeches = pgTable("speech_to_speeches", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  fileName: text("file_name").notNull(),
+  sourceLanguage: text("source_language").notNull(),
+  targetLanguage: text("target_language").notNull(),
+  durationSeconds: integer("duration_seconds").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSpeechToSpeechSchema = createInsertSchema(speechToSpeeches).omit({
   id: true,
-  lastUpdated: true,
+  createdAt: true,
+});
+
+// User Activity schema
+export const activities = pgTable("activities", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  activityType: text("activity_type").notNull(), // "transcription", "translation", "textToSpeech", "speechToSpeech"
+  activityId: integer("activity_id").notNull(), // ID of the related entity
+  details: json("details"), // Additional details about the activity
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertActivitySchema = createInsertSchema(activities).omit({
+  id: true,
+  createdAt: true,
+});
+
+// User Statistics schema
+export const userStats = pgTable("user_stats", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().unique(),
+  minutesTranscribed: integer("minutes_transcribed").default(0),
+  wordsTranslated: integer("words_translated").default(0),
+  speechGenerated: integer("speech_generated").default(0), // in seconds
+  activeProjects: integer("active_projects").default(0),
+  usageCost: integer("usage_cost").default(0), // in cents
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertUserStatsSchema = createInsertSchema(userStats).omit({
+  id: true,
+  updatedAt: true,
 });
 
 // Types
-export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
 
-export type InsertTranscription = z.infer<typeof insertTranscriptionSchema>;
 export type Transcription = typeof transcriptions.$inferSelect;
+export type InsertTranscription = z.infer<typeof insertTranscriptionSchema>;
 
-export type InsertTranslation = z.infer<typeof insertTranslationSchema>;
 export type Translation = typeof translations.$inferSelect;
+export type InsertTranslation = z.infer<typeof insertTranslationSchema>;
 
+export type TextToSpeech = typeof textToSpeeches.$inferSelect;
 export type InsertTextToSpeech = z.infer<typeof insertTextToSpeechSchema>;
-export type TextToSpeech = typeof textToSpeech.$inferSelect;
 
-export type InsertUsageStats = z.infer<typeof insertUsageStatsSchema>;
-export type UsageStats = typeof usageStats.$inferSelect;
+export type SpeechToSpeech = typeof speechToSpeeches.$inferSelect;
+export type InsertSpeechToSpeech = z.infer<typeof insertSpeechToSpeechSchema>;
+
+export type Activity = typeof activities.$inferSelect;
+export type InsertActivity = z.infer<typeof insertActivitySchema>;
+
+export type UserStats = typeof userStats.$inferSelect;
+export type InsertUserStats = z.infer<typeof insertUserStatsSchema>;

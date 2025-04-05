@@ -1,86 +1,89 @@
-import { useLocation, Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useAuth } from "@/context/AuthContext";
-import {
+import { 
   Mic, 
   Languages, 
-  AudioWaveform, 
+  PlayCircle, 
+  Link2,
   Volume2, 
-  MessageSquare, 
-  LayoutDashboard, 
-  LogOut
+  LogOut,
+  LayoutDashboard
 } from "lucide-react";
 
 const Sidebar = () => {
   const [location] = useLocation();
   const { logout } = useAuth();
 
-  const isActive = (path: string) => {
-    return location === path;
-  };
-
-  const handleLogout = async () => {
-    try {
-      await logout();
-    } catch (error) {
-      console.error("Error logging out:", error);
-    }
-  };
+  const navItems = [
+    {
+      name: "Dashboard",
+      path: "/dashboard",
+      icon: <LayoutDashboard className="sidebar-icon" />,
+    },
+    {
+      name: "Transcribe",
+      path: "/transcribe",
+      icon: <Mic className="sidebar-icon" />,
+    },
+    {
+      name: "Translate",
+      path: "/translate",
+      icon: <Languages className="sidebar-icon" />,
+    },
+    {
+      name: "Realtime Mode",
+      path: "/realtime-mode",
+      icon: <PlayCircle className="sidebar-icon" />,
+    },
+    {
+      name: "Text to Speech",
+      path: "/text-to-speech",
+      icon: <Volume2 className="sidebar-icon" />,
+    },
+    {
+      name: "Speech to Speech",
+      path: "/speech-to-speech",
+      icon: <Link2 className="sidebar-icon" />,
+    },
+  ];
 
   return (
-    <aside className="w-56 border-r border-gray-200 bg-white hidden md:block overflow-y-auto">
-      <nav className="mt-5 px-2">
-        <Link href="/dashboard">
-          <a className={isActive("/dashboard") ? "nav-item-active" : "nav-item group"}>
-            <LayoutDashboard className={isActive("/dashboard") ? "nav-icon-active" : "nav-icon"} />
-            Dashboard
-          </a>
-        </Link>
-        
-        <Link href="/transcribe">
-          <a className={isActive("/transcribe") ? "nav-item-active" : "nav-item group"}>
-            <Mic className={isActive("/transcribe") ? "nav-icon-active" : "nav-icon"} />
-            Transcribe
-          </a>
-        </Link>
-        
-        <Link href="/translate">
-          <a className={isActive("/translate") ? "nav-item-active" : "nav-item group"}>
-            <Languages className={isActive("/translate") ? "nav-icon-active" : "nav-icon"} />
-            Translate
-          </a>
-        </Link>
-        
-        <Link href="/realtime">
-          <a className={isActive("/realtime") ? "nav-item-active" : "nav-item group"}>
-            <AudioWaveform className={isActive("/realtime") ? "nav-icon-active" : "nav-icon"} />
-            Realtime Mode
-          </a>
-        </Link>
-        
-        <Link href="/text-to-speech">
-          <a className={isActive("/text-to-speech") ? "nav-item-active" : "nav-item group"}>
-            <Volume2 className={isActive("/text-to-speech") ? "nav-icon-active" : "nav-icon"} />
-            Text to Speech
-          </a>
-        </Link>
-        
-        <Link href="/speech-to-speech">
-          <a className={isActive("/speech-to-speech") ? "nav-item-active" : "nav-item group"}>
-            <MessageSquare className={isActive("/speech-to-speech") ? "nav-icon-active" : "nav-icon"} />
-            Speech to Speech
-          </a>
-        </Link>
-        
-        <div className="border-t border-gray-200 mt-6 pt-4">
-          <button 
-            onClick={handleLogout}
-            className="nav-item group w-full text-left"
+    <aside className="fixed inset-y-0 left-0 w-64 bg-white border-r border-gray-200 z-30 transform -translate-x-full lg:translate-x-0 transition-transform duration-300 ease-in-out">
+      <div className="flex flex-col h-full">
+        {/* Logo and brand */}
+        <div className="flex items-center px-6 py-4 h-16 border-b border-gray-200">
+          <Link href="/dashboard" className="flex items-center space-x-2">
+            <Mic className="w-7 h-7 text-primary" />
+            <span className="text-xl font-semibold text-primary">Speech AI</span>
+          </Link>
+        </div>
+
+        {/* Navigation items */}
+        <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
+          {navItems.map((item) => (
+            <Link
+              key={item.path}
+              href={item.path}
+              className={`sidebar-item ${
+                location === item.path ? "active" : ""
+              }`}
+            >
+              {item.icon}
+              <span>{item.name}</span>
+            </Link>
+          ))}
+        </nav>
+
+        <div className="p-4 border-t border-gray-200">
+          <button
+            onClick={() => logout()}
+            className="sidebar-item w-full flex items-center"
           >
-            <LogOut className="nav-icon" />
-            Logout
+            <LogOut className="sidebar-icon" />
+            <span>Logout</span>
           </button>
         </div>
-      </nav>
+      </div>
     </aside>
   );
 };
