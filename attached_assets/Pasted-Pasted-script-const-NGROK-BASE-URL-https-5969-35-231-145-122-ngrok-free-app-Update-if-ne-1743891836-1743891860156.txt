@@ -1,0 +1,92 @@
+Pasted--script-const-NGROK-BASE-URL-https-5969-35-231-145-122-ngrok-free-app-Update-if-ne-1743891836276.txt
+<script>
+    const NGROK_BASE_URL = "https://5969-35-231-145-122.ngrok-free.app"; // ✅ Update if needed
+
+    // Handle file upload transcription
+    document.getElementById("submit-btn").addEventListener("click", function () {
+      const fileInput = document.getElementById("audio-file");
+      const language = document.getElementById("language").value;
+      const transcriptionDiv = document.getElementById("transcription");
+
+      if (!fileInput.files.length) {
+        alert("Please select an audio file.");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("audio", fileInput.files[0]);
+      formData.append("language", language);
+
+      transcriptionDiv.textContent = "Uploading file...";
+
+      fetch(`${NGROK_BASE_URL}/transcribe`, {
+        method: "POST",
+        body: formData,
+      })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.transcription) {
+          transcriptionDiv.textContent = `Transcription: ${data.transcription}`;
+        } else {
+          transcriptionDiv.textContent = "Error: Unable to transcribe the audio.";
+        }
+      })
+      .catch((error) => {
+        console.error("Error:", error);
+        transcriptionDiv.textContent = "Error processing the audio file.";
+      });
+    });
+
+    // Real-time (simulated) transcription
+    let mediaRecorder;
+    let audioChunks = [];
+
+    async function startRecording() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunks.push(event.data);
+          }
+        };
+
+        mediaRecorder.start();
+        document.getElementById("stream-transcription").textContent = "Recording...";
+      } catch (err) {
+        alert("Error accessing microphone: " + err.message);
+      }
+    }
+
+    function stopRecording() {
+      mediaRecorder.stop();
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+        const language = document.getElementById("stream-language").value;
+        const formData = new FormData();
+        formData.append("audio_chunk", audioBlob, "chunk.webm");
+        formData.append("language", language);
+
+        const transcriptionDiv = document.getElementById("stream-transcription");
+        transcriptionDiv.textContent = "Processing audio chunk...";
+
+        try {
+          const response = await fetch(`${NGROK_BASE_URL}/transcribe_stream`, {
+            method: "POST",
+            body: formData,
+          });
+          const data = await response.json();
+          if (data.transcription) {
+            transcriptionDiv.textContent = `Transcription: ${data.transcription}`;
+          } else {
+            transcriptionDiv.textContent = "Error: Unable to transcribe the chunk.";
+          }
+        } catch (error) {
+          console.error("Error:", error);
+          transcriptionDiv.textContent = "Error sending the audio chunk.";
+        }
+      };
+    }
+  </script>
