@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
-import { useSpeechServices } from "@/hooks/use-speech-services";
-import { Upload } from "lucide-react";
+import { useTranscriptionService } from "@/hooks/useTranscriptionService";
+import { Textarea } from "@/components/ui/textarea";
+import { LANGUAGES, LANGUAGE_NAMES } from "@/types/speech-services";
 
 interface TranscribeModalProps {
   isOpen: boolean;
@@ -15,133 +15,108 @@ interface TranscribeModalProps {
 
 const TranscribeModal = ({ isOpen, onClose }: TranscribeModalProps) => {
   const [file, setFile] = useState<File | null>(null);
-  const [language, setLanguage] = useState("en-US");
-  const [enableSpeakerDiarization, setEnableSpeakerDiarization] = useState(false);
-  const [addPunctuation, setAddPunctuation] = useState(true);
-  const { transcribeAudio } = useSpeechServices();
+  const [language, setLanguage] = useState("english");
+  const { transcribe, result, playAudio, playTranslatedAudio } = useTranscriptionService();
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-    }
-  };
-
-  const handleSubmit = async () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!file) return;
 
     try {
-      await transcribeAudio.mutateAsync({
-        file,
-        language,
-        options: {
-          enableSpeakerDiarization,
-          addPunctuation,
-        },
-      });
-      onClose();
+      await transcribe.mutateAsync({ file, language });
     } catch (error) {
-      console.error("Transcription error:", error);
+      console.error('Transcription error:', error);
     }
   };
 
+  useEffect(() => {
+    if (result) {
+      // You can set any UI changes you want once the transcription result is available.
+    }
+  }, [result]);
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Transcribe Audio</DialogTitle>
           <DialogDescription>
             Upload an audio file to transcribe it to text.
           </DialogDescription>
         </DialogHeader>
-
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label htmlFor="audio-file">Upload Audio File</Label>
-            <div className="border-2 border-dashed border-gray-300 rounded-lg px-6 py-10 text-center">
-              <Upload className="mx-auto h-12 w-12 text-gray-400" />
-              <p className="mt-1 text-sm text-gray-500">
-                {file ? file.name : "Drag and drop a file here, or click to browse"}
-              </p>
+        <form onSubmit={handleSubmit}>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="file">Audio File</Label>
               <Input
-                id="audio-file"
+                id="file"
                 type="file"
                 accept="audio/*"
-                className="hidden"
-                onChange={handleFileChange}
+                onChange={(e) => setFile(e.target.files?.[0] || null)}
               />
-              <Button
-                type="button"
-                variant="outline"
-                className="mt-2"
-                onClick={() => document.getElementById("audio-file")?.click()}
-              >
-                Select File
-              </Button>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="language">Language</Label>
+              <Select value={language} onValueChange={setLanguage}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select language" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(LANGUAGES).map(([key, value]) => (
+                    <SelectItem key={key} value={key}>
+                      {LANGUAGE_NAMES[key as keyof typeof LANGUAGE_NAMES]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Transcription Result */}
+            {result?.transcription && (
+              <div className="grid gap-2">
+                <Label>Transcription</Label>
+                <Textarea
+                  value={result.transcription}
+                  readOnly
+                  className="min-h-[100px]"
+                />
+              </div>
+            )}
+
+            {/* Translated Text Result */}
+            {result?.translatedText && (
+              <div className="grid gap-2">
+                <Label>Translated Text</Label>
+                <Textarea
+                  value={result.translatedText}
+                  readOnly
+                  className="min-h-[100px]"
+                />
+              </div>
+            )}
+
+            {/* Play Audio Buttons */}
+            <div className="grid gap-2">
+              {result?.originalAudioUrl && (
+                <Button variant="outline" onClick={playAudio} className="w-full">
+                  Play Original Audio
+                </Button>
+              )}
+
+              {result?.translatedAudioUrl && (
+                <Button variant="outline" onClick={playTranslatedAudio} className="w-full">
+                  Play Translated Audio
+                </Button>
+              )}
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="language">Language</Label>
-            <Select value={language} onValueChange={setLanguage}>
-              <SelectTrigger id="language">
-                <SelectValue placeholder="Select Language" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="en-US">English (US)</SelectItem>
-                <SelectItem value="en-GB">English (UK)</SelectItem>
-                <SelectItem value="es-ES">Spanish</SelectItem>
-                <SelectItem value="fr-FR">French</SelectItem>
-                <SelectItem value="de-DE">German</SelectItem>
-                <SelectItem value="ja-JP">Japanese</SelectItem>
-                <SelectItem value="zh-CN">Chinese (Simplified)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Advanced Options</Label>
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="speaker-diarization"
-                  checked={enableSpeakerDiarization}
-                  onCheckedChange={(checked) => setEnableSpeakerDiarization(!!checked)}
-                />
-                <label
-                  htmlFor="speaker-diarization"
-                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                >
-                  Enable speaker diarization
-                </label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="punctuation"
-                  checked={addPunctuation}
-                  onCheckedChange={(checked) => setAddPunctuation(!!checked)}
-                />
-                <label
-                  htmlFor="punctuation"
-                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                >
-                  Add punctuation
-                </label>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleSubmit} 
-            disabled={!file || transcribeAudio.isPending}
-          >
-            {transcribeAudio.isPending ? "Processing..." : "Start Transcription"}
-          </Button>
-        </DialogFooter>
+          <DialogFooter>
+            <Button type="submit" disabled={!file || transcribe.isPending}>
+              {transcribe.isPending ? "Transcribing..." : "Transcribe"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

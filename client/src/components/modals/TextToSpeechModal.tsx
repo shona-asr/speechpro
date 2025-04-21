@@ -1,64 +1,58 @@
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useSpeechServices } from "@/hooks/use-speech-services";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "@/components/ui/select";
+import { useTextToSpeechService } from "@/hooks/useTextToSpeechService";
+import { Play } from "lucide-react";
 
 interface TextToSpeechModalProps {
   isOpen: boolean;
   onClose: () => void;
+  text?: string;
 }
 
-const TextToSpeechModal = ({ isOpen, onClose }: TextToSpeechModalProps) => {
-  const [text, setText] = useState("");
-  const [language, setLanguage] = useState("en-US");
-  const [voice, setVoice] = useState("en-US-Standard-B"); // Default voice
-  const [audioUrl, setAudioUrl] = useState("");
-  const { textToSpeech } = useSpeechServices();
+const TextToSpeechModal = ({ isOpen, onClose, text = "" }: TextToSpeechModalProps) => {
+  const [inputText, setInputText] = useState(text);
+  const [language, setLanguage] = useState("english");
+  const [isPlaying, setIsPlaying] = useState(false);
 
-  const voices = {
-    "en-US": [
-      { value: "en-US-Standard-A", label: "Female" },
-      { value: "en-US-Standard-B", label: "Male" },
-      { value: "en-US-Wavenet-A", label: "Female (Natural)" },
-      { value: "en-US-Wavenet-B", label: "Male (Natural)" },
-    ],
-    "es-ES": [
-      { value: "es-ES-Standard-A", label: "Female" },
-      { value: "es-ES-Standard-B", label: "Male" },
-    ],
-    "fr-FR": [
-      { value: "fr-FR-Standard-A", label: "Female" },
-      { value: "fr-FR-Standard-B", label: "Male" },
-    ],
-    "de-DE": [
-      { value: "de-DE-Standard-A", label: "Female" },
-      { value: "de-DE-Standard-B", label: "Male" },
-    ],
-  };
+  const { textToSpeech, result } = useTextToSpeechService();
 
-  const handleLanguageChange = (newLanguage: string) => {
-    setLanguage(newLanguage);
-    // Set default voice for selected language
-    if (voices[newLanguage as keyof typeof voices]) {
-      setVoice(voices[newLanguage as keyof typeof voices][0].value);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputText) return;
+
+    try {
+      await textToSpeech.mutateAsync({
+        text: inputText,
+        language
+      });
+    } catch (error) {
+      console.error('Text-to-Speech error:', error);
     }
   };
 
-  const handleSubmit = async () => {
-    if (!text) return;
-
-    try {
-      const result = await textToSpeech.mutateAsync({
-        text,
-        language,
-        voice,
-      });
-      setAudioUrl(result.audioUrl);
-    } catch (error) {
-      console.error("Text-to-Speech error:", error);
+  const handlePlay = () => {
+    if (result?.audioUrl) {
+      const audio = new Audio(result.audioUrl);
+      setIsPlaying(true);
+      audio.play();
+      audio.onended = () => setIsPlaying(false);
     }
   };
 
@@ -68,75 +62,64 @@ const TextToSpeechModal = ({ isOpen, onClose }: TextToSpeechModalProps) => {
         <DialogHeader>
           <DialogTitle>Text to Speech</DialogTitle>
           <DialogDescription>
-            Convert text to natural-sounding speech.
+            Convert text to spoken audio in your chosen language.
           </DialogDescription>
         </DialogHeader>
-
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label htmlFor="language">Language</Label>
-            <Select value={language} onValueChange={handleLanguageChange}>
-              <SelectTrigger id="language">
-                <SelectValue placeholder="Select Language" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="en-US">English (US)</SelectItem>
-                <SelectItem value="es-ES">Spanish</SelectItem>
-                <SelectItem value="fr-FR">French</SelectItem>
-                <SelectItem value="de-DE">German</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="voice">Voice</Label>
-            <Select value={voice} onValueChange={setVoice}>
-              <SelectTrigger id="voice">
-                <SelectValue placeholder="Select Voice" />
-              </SelectTrigger>
-              <SelectContent>
-                {voices[language as keyof typeof voices]?.map(voiceOption => (
-                  <SelectItem key={voiceOption.value} value={voiceOption.value}>
-                    {voiceOption.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="text-to-convert">Text</Label>
-            <Textarea
-              id="text-to-convert"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Enter text to convert to speech..."
-              rows={4}
-            />
-          </div>
-
-          {audioUrl && (
-            <div className="space-y-2">
-              <Label>Generated Speech</Label>
-              <audio controls className="w-full">
-                <source src={audioUrl} type="audio/mp3" />
-                Your browser does not support the audio element.
-              </audio>
+        <form onSubmit={handleSubmit}>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="text">Text to Convert</Label>
+              <Textarea
+                id="text"
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                placeholder="Enter text to convert to speech..."
+                className="min-h-[100px]"
+              />
             </div>
-          )}
-        </div>
+            <div className="grid gap-2">
+              <Label htmlFor="language">Language</Label>
+              <Select value={language} onValueChange={setLanguage}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select language" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="english">English</SelectItem>
+                  <SelectItem value="chinese">Chinese</SelectItem>
+                  <SelectItem value="shona">Shona</SelectItem>
+                  <SelectItem value="ndebele">Ndebele</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Close
-          </Button>
-          <Button 
-            onClick={handleSubmit} 
-            disabled={!text || textToSpeech.isPending}
-          >
-            {textToSpeech.isPending ? "Generating..." : "Generate Speech"}
-          </Button>
-        </DialogFooter>
+            {result && result.audioUrl && (
+              <div className="grid gap-2">
+                <div>
+                  <Label>Original Text</Label>
+                  <div className="text-sm border rounded p-2 bg-muted">{result.originalText}</div>
+                </div>
+
+                <div>
+                  <Label>Audio</Label>
+                  <Button
+                    variant="outline"
+                    onClick={handlePlay}
+                    className="w-full"
+                    disabled={isPlaying}
+                  >
+                    <Play className="mr-2 h-4 w-4" />
+                    {isPlaying ? "Playing..." : "Play Audio"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="submit" disabled={!inputText || textToSpeech.isPending}>
+              {textToSpeech.isPending ? "Converting..." : "Convert to Speech"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

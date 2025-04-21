@@ -1,11 +1,26 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { createServer } from "http";  // Explicitly create HTTP server
+import cors from "cors";
+import { errorHandler } from "./middleware/error";
 
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
 
+// Configure CORS
+app.use(cors({
+  origin: ['http://127.0.0.1:3000', 'http://localhost:3000', 'http://127.0.0.1:5000', 'http://localhost:5000'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  credentials: true,
+  exposedHeaders: ['Content-Length', 'Content-Type']
+}));
+
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Improved request logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -25,8 +40,9 @@ app.use((req, res, next) => {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 
+      // Slightly more readable truncation
       if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
+        logLine = logLine.substring(0, 77) + "...";
       }
 
       log(logLine);
@@ -37,34 +53,46 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const server = await registerRoutes(app);
+  try {
+    const server = await registerRoutes(app);
+    const httpServer = createServer(app);  // Create explicit HTTP server
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+    // Error handling middleware with better type safety
+    app.use(errorHandler);
 
-    res.status(status).json({ message });
-    throw err;
-  });
+    // Vite setup
+    if (app.get("env") === "development") {
+      await setupVite(app, httpServer);  // Pass the HTTP server instead
+    } else {
+      serveStatic(app);
+    }
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
+    const port = process.env.PORT || 3000;
+    const host = "127.0.0.1";  // Explicit IPv4 binding
+
+    httpServer.listen(port, host, () => {
+      log(`Server running on http://${host}:${port}`);
+      log(`Environment: ${app.get("env")}`);
+    });
+
+    // Handle server errors gracefully
+    httpServer.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "EADDRINUSE") {
+        log(`[FATAL] Port ${port} is already in use`);
+      } else {
+        log(`[FATAL] Server error: ${error.message}`);
+      }
+      process.exit(1);
+    });
+
+    // Handle process termination
+    process.on("SIGTERM", () => {
+      log("SIGTERM received - shutting down gracefully");
+      httpServer.close();
+    });
+
+  } catch (error) {
+    log(`[FATAL] Startup failed: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
   }
-
-  // ALWAYS serve the app on port 5000
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = 5000;
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
-  });
 })();

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import DashboardLayout from "@/components/layout/Dashboard";
-import SpeechToSpeechModal from "@/components/modals/SpeechToSpeechModal";
+import { SpeechToSpeechModal } from "@/components/modals/SpeechToSpeechModal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Link2, Upload, File, Clock } from "lucide-react";

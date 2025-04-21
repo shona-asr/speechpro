@@ -3,136 +3,133 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Mic, MicOff } from "lucide-react";
+import { useTranscriptionStreamService } from "@/hooks/useTranscriptionStreamService";
+import { Textarea } from "@/components/ui/textarea";
+import { LANGUAGES, LANGUAGE_NAMES } from "@/types/speech-services";
+import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 
-interface RealtimeModeModalProps {
+interface RealtimeModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const RealtimeModeModal = ({ isOpen, onClose }: RealtimeModeModalProps) => {
-  const [isRecording, setIsRecording] = useState(false);
-  const [language, setLanguage] = useState("en-US");
+const RealtimeModal = ({ isOpen, onClose }: RealtimeModalProps) => {
+  const [language, setLanguage] = useState("english");
   const [transcription, setTranscription] = useState("");
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
+  const [isConnected, setIsConnected] = useState(true);
+  const { transcribeStream } = useTranscriptionStreamService();
+  const { startRecording, stopRecording, isRecording, audioChunks } = useAudioRecorder();
+  const processedChunksRef = useRef<number>(0);
+  const retryTimeoutRef = useRef<NodeJS.Timeout>();
 
+  // Effect to process audio chunks and call the transcription stream service
   useEffect(() => {
-    if (isOpen) {
-      // Initialize WebSocket connection when modal opens
-      const socket = new WebSocket(`wss://${window.location.host}/api/realtime`);
-      
-      socket.onopen = () => {
-        console.log("WebSocket connection established");
-      };
-      
-      socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.transcription) {
-          setTranscription(prev => prev + " " + data.transcription);
-        }
-      };
-      
-      socket.onerror = (error) => {
-        console.error("WebSocket error:", error);
-      };
-      
-      socketRef.current = socket;
-      
-      return () => {
-        // Close WebSocket connection when modal closes
-        if (socketRef.current) {
-          socketRef.current.close();
-        }
-      };
-    }
-  }, [isOpen]);
+    const processNewChunks = async () => {
+      if (audioChunks.length <= processedChunksRef.current) return;
 
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0 && socketRef.current?.readyState === WebSocket.OPEN) {
-          socketRef.current.send(JSON.stringify({
-            audio: event.data,
-            language
-          }));
+      const newChunks = audioChunks.slice(processedChunksRef.current);
+      processedChunksRef.current = audioChunks.length;
+
+      for (const chunk of newChunks) {
+        try {
+          // Sending each audio chunk for transcription via the service
+          const result = await transcribeStream.mutateAsync({
+            audioChunk: chunk,
+            language,
+          });
+          setIsConnected(true);
+          if (result.transcription) {
+            setTranscription((prev) => {
+              const newText = result.transcription.trim();
+              if (!prev.includes(newText)) {
+                return prev + (prev ? " " : "") + newText;
+              }
+              return prev;
+            });
+          }
+        } catch (error) {
+          console.error("Streaming transcription error:", error);
+          setIsConnected(false);
+          
+          // Clear any existing retry timeout
+          if (retryTimeoutRef.current) {
+            clearTimeout(retryTimeoutRef.current);
+          }
+          
+          // Set a new retry timeout
+          retryTimeoutRef.current = setTimeout(() => {
+            setIsConnected(true);
+            // Reset the processed chunks counter to reprocess any failed chunks
+            processedChunksRef.current = 0;
+          }, 5000); // Retry after 5 seconds
         }
-      };
-      
-      mediaRecorder.start(1000); // Collect data every second
-      mediaRecorderRef.current = mediaRecorder;
-      setIsRecording(true);
-    } catch (error) {
-      console.error("Error accessing microphone:", error);
+      }
+    };
+
+    if (isRecording) {
+      processNewChunks();
     }
+
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, [audioChunks, isRecording, language, transcribeStream]);
+
+  // Handle recording start and stop
+  const handleStartRecording = () => {
+    setTranscription("");
+    processedChunksRef.current = 0;
+    startRecording();
   };
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-      mediaRecorderRef.current = null;
-      setIsRecording(false);
-    }
+  const handleStopRecording = () => {
+    stopRecording();
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px]">
+      <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Realtime Speech Recognition</DialogTitle>
+          <DialogTitle>Real-time Transcription</DialogTitle>
           <DialogDescription>
-            Start speaking and see your speech transcribed in real-time.
+            Record audio for real-time transcription.
           </DialogDescription>
         </DialogHeader>
-
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
             <Label htmlFor="language">Language</Label>
             <Select value={language} onValueChange={setLanguage}>
-              <SelectTrigger id="language">
-                <SelectValue placeholder="Select Language" />
+              <SelectTrigger>
+                <SelectValue placeholder="Select language" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="en-US">English (US)</SelectItem>
-                <SelectItem value="en-GB">English (UK)</SelectItem>
-                <SelectItem value="es-ES">Spanish</SelectItem>
-                <SelectItem value="fr-FR">French</SelectItem>
-                <SelectItem value="de-DE">German</SelectItem>
-                <SelectItem value="ja-JP">Japanese</SelectItem>
-                <SelectItem value="zh-CN">Chinese (Simplified)</SelectItem>
+                {Object.entries(LANGUAGES).filter(([key]) => key !== "auto").map(([key, value]) => (
+                  <SelectItem key={key} value={key}>
+                    {LANGUAGE_NAMES[key as keyof typeof LANGUAGE_NAMES]}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
-
-          <div className="flex justify-center my-6">
-            <Button
-              size="lg"
-              className={`rounded-full p-6 ${isRecording ? 'bg-red-500 hover:bg-red-600' : ''}`}
-              onClick={isRecording ? stopRecording : startRecording}
-            >
-              {isRecording ? (
-                <MicOff className="h-10 w-10" />
-              ) : (
-                <Mic className="h-10 w-10" />
-              )}
-            </Button>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Transcription</Label>
-            <div className="p-4 border rounded-md bg-gray-50 min-h-[120px] max-h-[200px] overflow-y-auto">
-              {transcription || "Start speaking to see transcription..."}
+          {transcription && (
+            <div className="grid gap-2">
+              <Label>Transcription</Label>
+              <Textarea
+                value={transcription}
+                readOnly
+                className="min-h-[100px]"
+              />
             </div>
-          </div>
+          )}
         </div>
-
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Close
+          <Button
+            onClick={isRecording ? handleStopRecording : handleStartRecording}
+            disabled={transcribeStream.isPending}
+          >
+            {isRecording ? "Stop Recording" : "Start Recording"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -140,4 +137,4 @@ const RealtimeModeModal = ({ isOpen, onClose }: RealtimeModeModalProps) => {
   );
 };
 
-export default RealtimeModeModal;
+export { RealtimeModal };

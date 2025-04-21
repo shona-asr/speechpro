@@ -2,11 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 
 export function useAudioRecorder() {
   const [isRecording, setIsRecording] = useState(false);
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
   const [recordingTime, setRecordingTime] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Reset timer when recording stops
@@ -37,8 +36,7 @@ export function useAudioRecorder() {
   const startRecording = async () => {
     try {
       // Reset state
-      chunksRef.current = [];
-      setAudioBlob(null);
+      setAudioChunks([]);
       setRecordingTime(0);
 
       // Request microphone access
@@ -46,20 +44,20 @@ export function useAudioRecorder() {
       streamRef.current = stream;
 
       // Create media recorder
-      const mediaRecorder = new MediaRecorder(stream);
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus'
+      });
       mediaRecorderRef.current = mediaRecorder;
 
       // Set up data handler
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
-          chunksRef.current.push(e.data);
+          setAudioChunks(prev => [...prev, e.data]);
         }
       };
 
       // Handle recording stop
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(chunksRef.current, { type: 'audio/wav' });
-        setAudioBlob(audioBlob);
         setIsRecording(false);
         
         // Stop all tracks
@@ -68,8 +66,8 @@ export function useAudioRecorder() {
         }
       };
 
-      // Start recording
-      mediaRecorder.start(1000); // Collect data every second
+      // Start recording with 5-second chunks
+      mediaRecorder.start(5000);
       setIsRecording(true);
 
       // Start timer
@@ -92,17 +90,16 @@ export function useAudioRecorder() {
     if (isRecording) {
       stopRecording();
     }
-    setAudioBlob(null);
+    setAudioChunks([]);
     setRecordingTime(0);
-    chunksRef.current = [];
   };
 
   return {
     isRecording,
-    audioBlob,
+    audioChunks,
+    recordingTime,
     startRecording,
     stopRecording,
-    resetRecording,
-    recordingTime
+    resetRecording
   };
 }

@@ -1,45 +1,24 @@
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { Request } from 'express';
 
 /**
  * Configure multer storage for file uploads
  */
 export function configureMulter() {
-  // Create uploads directory if it doesn't exist
-  const uploadDir = path.join(process.cwd(), 'uploads');
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-  }
-
-  // Configure storage
-  const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-      cb(null, uploadDir);
-    },
-    filename: function (req, file, cb) {
-      // Create a unique filename
-      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-      const extension = path.extname(file.originalname);
-      cb(null, file.fieldname + '-' + uniqueSuffix + extension);
-    }
-  });
-
-  // File filter to only allow audio files
-  const fileFilter = (req: Express.Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-    // Accept only audio files
-    if (file.mimetype.startsWith('audio/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only audio files are allowed!'));
-    }
-  };
-
-  return multer({ 
-    storage: storage,
-    fileFilter: fileFilter,
+  return multer({
+    storage: multer.memoryStorage(),
     limits: {
-      fileSize: 50 * 1024 * 1024, // 50MB max file size
+      fileSize: 50 * 1024 * 1024, // 50MB limit
+    },
+    fileFilter: (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+      // Accept audio files
+      if (file.mimetype.startsWith('audio/')) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only audio files are allowed'));
+      }
     }
   });
 }

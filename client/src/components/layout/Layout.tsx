@@ -8,11 +8,15 @@ interface LayoutProps {
 }
 
 const Layout = ({ children }: LayoutProps) => {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+// In your Layout component
+const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const toggleSidebar = () => {
-    setSidebarOpen(!sidebarOpen);
-  };
+const toggleSidebar = () => {
+  setSidebarOpen(!sidebarOpen);
+};
+
+// Pass to Header
+<Header toggleSidebar={toggleSidebar} />
 
   return (
     <div className="flex flex-col h-screen">

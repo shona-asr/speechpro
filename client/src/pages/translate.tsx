@@ -48,7 +48,7 @@ const Translate = () => {
             <CardContent>
               <div className="text-2xl font-bold">0</div>
               <p className="text-xs text-muted-foreground">
-                Most common: English → Spanish
+                Most common: English → Shona
               </p>
             </CardContent>
           </Card>

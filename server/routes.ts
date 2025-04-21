@@ -11,10 +11,6 @@ import {
   textToSpeech, 
   speechToSpeech 
 } from "./services/speechServices";
-import {
-  transcribeWithCustomService,
-  transcribeStreamWithCustomService
-} from "./services/customTranscriptionService";
 import { 
   users, 
   transcriptions, 
@@ -66,8 +62,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
   
-  // Custom transcription routes for external APIs
-  app.post("/transcribe", upload.single("audio"), async (req, res) => {
+  // Transcription routes
+  app.post("/api/transcribe", upload.single("audio"), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No audio file provided" });
@@ -75,21 +71,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const language = req.body.language || "en-US";
       
-      console.log(`Processing audio transcription with custom service: ${req.file.originalname} (${language})`);
+      console.log(`Processing audio transcription: ${req.file.originalname} (${language})`);
       
-      // Use the custom transcription service
-      const result = await transcribeWithCustomService(req.file.path, language);
+      // Use the transcription service
+      const result = await transcribeAudio(req.file.path, language);
       
-      res.json({
-        transcription: result.text
-      });
-    } catch (error: any) {
-      console.error("Error in custom transcription:", error);
-      res.status(500).json({ error: error.message || "Failed to transcribe audio" });
+      res.json(result);
+    } catch (error) {
+      console.error("Transcription error:", error);
+      res.status(500).json({ error: error.message });
     }
   });
   
-  app.post("/transcribe_stream", upload.single("audio_chunk"), async (req, res) => {
+  app.post("/api/transcribe_stream", upload.single("audio_chunk"), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No audio chunk provided" });
@@ -97,17 +91,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const language = req.body.language || "en-US";
       
-      console.log(`Processing streaming audio chunk with custom service: ${req.file.originalname} (${language})`);
+      console.log(`Processing streaming audio chunk: ${req.file.originalname} (${language})`);
       
-      // Use the custom streaming transcription service
-      const result = await transcribeStreamWithCustomService(req.file.path, language);
+      // Use the streaming transcription service
+      const result = await transcribeAudio(req.file.path, language);
       
-      res.json({
-        transcription: result.text
-      });
-    } catch (error: any) {
-      console.error("Error in custom streaming transcription:", error);
-      res.status(500).json({ error: error.message || "Failed to transcribe audio chunk" });
+      res.json(result);
+    } catch (error) {
+      console.error("Streaming transcription error:", error);
+      res.status(500).json({ error: error.message });
     }
   });
 
@@ -264,105 +256,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/translate", authenticate, async (req, res) => {
     try {
       const { text, sourceLanguage, targetLanguage } = req.body;
-      
-      if (!text || !sourceLanguage || !targetLanguage) {
-        return res.status(400).json({ message: "Text, source language, and target language are required" });
+
+      if (!text || !targetLanguage) {
+        return res.status(400).json({ error: 'Missing required parameters' });
       }
-      
-      // Translate the text
-      const translationResult = await translateText(text, sourceLanguage, targetLanguage);
-      
-      // Calculate word count
-      const wordCount = text.split(/\s+/).length;
-      
-      // Save the translation to the database
-      const translationData = {
-        userId: req.user!.id,
-        sourceText: text,
-        sourceLanguage,
-        targetLanguage,
-        translatedText: translationResult.translatedText,
-        wordCount
-      };
-      
-      const translation = await storage.createTranslation(translationData);
-      
-      // Update user stats
-      await storage.updateUserStats(req.user!.id, {
-        wordsTranslated: wordCount
+
+      const [translation] = await translateClient.translate(text, {
+        from: sourceLanguage || 'auto',
+        to: targetLanguage,
       });
-      
-      // Record activity
-      await storage.createActivity({
-        userId: req.user!.id,
-        activityType: "translation",
-        activityId: translation.id,
-        details: JSON.stringify({
-          description: `Translated text from ${sourceLanguage} to ${targetLanguage} (${wordCount} words)`
-        })
-      });
-      
-      res.json({
-        id: translation.id,
-        translatedText: translationResult.translatedText,
-        wordCount
-      });
+
+      res.json({ text: translation });
     } catch (error) {
-      console.error("Translation error:", error);
-      res.status(500).json({ message: "Failed to translate text" });
+      console.error('Translation error:', error);
+      res.status(500).json({ error: 'Translation failed' });
     }
   });
 
   // Text-to-Speech routes
   app.post("/api/text-to-speech", authenticate, async (req, res) => {
     try {
-      const { text, language, voice } = req.body;
-      
-      if (!text || !language || !voice) {
-        return res.status(400).json({ message: "Text, language, and voice are required" });
+      const { text, voice } = req.body;
+
+      if (!text || !voice) {
+        return res.status(400).json({ error: 'Missing required parameters' });
       }
-      
-      // Convert text to speech
-      const ttsResult = await textToSpeech(text, language, voice);
-      
-      // Calculate word count
-      const wordCount = text.split(/\s+/).length;
-      
-      // Save the text-to-speech to the database
-      const ttsData = {
-        userId: req.user!.id,
-        text,
-        language,
-        voice,
-        audioUrl: ttsResult.audioUrl,
-        wordCount
-      };
-      
-      const tts = await storage.createTextToSpeech(ttsData);
-      
-      // Update user stats
-      await storage.updateUserStats(req.user!.id, {
-        speechGenerated: ttsResult.durationSeconds || 0
+
+      const [response] = await ttsClient.synthesizeSpeech({
+        input: { text },
+        voice: { languageCode: voice },
+        audioConfig: { audioEncoding: 'MP3' },
       });
-      
-      // Record activity
-      await storage.createActivity({
-        userId: req.user!.id,
-        activityType: "textToSpeech",
-        activityId: tts.id,
-        details: JSON.stringify({
-          description: `Generated speech for "${truncateText(text, 30)}" (${wordCount} words)`
-        })
-      });
-      
-      res.json({
-        id: tts.id,
-        audioUrl: ttsResult.audioUrl,
-        durationSeconds: ttsResult.durationSeconds
-      });
+
+      if (!response.audioContent) {
+        throw new Error('No audio content received');
+      }
+
+      // Convert the audio content to base64
+      const audioBase64 = response.audioContent.toString('base64');
+
+      res.json({ audio: audioBase64 });
     } catch (error) {
-      console.error("Text-to-Speech error:", error);
-      res.status(500).json({ message: "Failed to convert text to speech" });
+      console.error('Text-to-Speech error:', error);
+      res.status(500).json({ error: 'Text-to-Speech conversion failed' });
     }
   });
 

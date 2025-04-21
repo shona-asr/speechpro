@@ -349,12 +349,9 @@ const Profile = () => {
                     defaultValue="en-US"
                   >
                     <option value="en-US">English (US)</option>
-                    <option value="en-GB">English (UK)</option>
-                    <option value="es-ES">Spanish</option>
-                    <option value="fr-FR">French</option>
-                    <option value="de-DE">German</option>
-                    <option value="ja-JP">Japanese</option>
                     <option value="zh-CN">Chinese (Simplified)</option>
+                    <option value="sn-ZW">Shona (Zimbabwe)</option>
+                    <option value="nr-ZA">Ndebele (South Africa)</option>
                   </select>
                 </div>
                 <div className="space-y-2">

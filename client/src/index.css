@@ -54,3 +54,23 @@
     opacity: 1;
   }
 }
+/* Smooth transitions for header/sidebar */
+.header-transition {
+  transition: all 0.3s ease;
+}
+
+.sidebar-transition {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+/* Ensure proper stacking context */
+header {
+  z-index: 40;
+}
+
+aside.sidebar {
+  z-index: 50;
+}
+
+.dropdown-menu {
+  z-index: 60;
+}

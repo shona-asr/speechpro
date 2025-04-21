@@ -1,6 +1,6 @@
 import { useState } from "react";
 import DashboardLayout from "@/components/layout/Dashboard";
-import RealtimeModeModal from "@/components/modals/RealtimeModal";
+import { RealtimeModal } from "@/components/modals/RealtimeModal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { PlayCircle, Mic, MicOff, BookOpen } from "lucide-react";
@@ -170,7 +170,7 @@ const RealtimeMode = () => {
         </div>
       </div>
 
-      <RealtimeModeModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+      <RealtimeModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
     </DashboardLayout>
   );
 };

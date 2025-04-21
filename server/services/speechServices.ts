@@ -1,6 +1,28 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { transcribe, translate, synthesizeSpeech } from './googleCloud';
+import fetch, { Response } from 'node-fetch';
+import { ReadStream } from 'fs';
+import FormData from 'form-data';
+
+const API_BASE_URL = process.env.API_BASE_URL;
+
+interface TranscriptionResult {
+  transcription?: string;
+  text?: string;
+  language?: string;
+  durationSeconds?: number;
+}
+
+interface TranscriptionOptions {
+  model?: string;
+  temperature?: number;
+  [key: string]: any;
+}
+
+async function parseJsonResponse(response: Response): Promise<TranscriptionResult> {
+  const data = await response.json();
+  return data as TranscriptionResult;
+}
 
 /**
  * Transcribes audio file to text
@@ -12,26 +34,101 @@ import { transcribe, translate, synthesizeSpeech } from './googleCloud';
 export async function transcribeAudio(
   audioFilePath: string,
   language: string = 'en-US',
-  options: any = {}
-) {
+  options: TranscriptionOptions = {}
+): Promise<TranscriptionResult> {
   try {
-    // Configure transcription options
-    const config = {
-      enableAutomaticPunctuation: options.addPunctuation !== false,
-      enableSpeakerDiarization: options.enableSpeakerDiarization === true,
-      diarizationSpeakerCount: options.enableSpeakerDiarization ? (options.speakerCount || 2) : undefined,
-    };
+    // Check if file exists
+    if (!fs.existsSync(audioFilePath)) {
+      throw new Error('Audio file not found');
+    }
 
-    // Call the Google Cloud Speech-to-Text API
-    const result = await transcribe(audioFilePath, language, config);
+    // Create form data
+    const formData = new FormData();
+    formData.append('audio', fs.createReadStream(audioFilePath));
+    formData.append('language', language);
+
+    // Add any additional options
+    Object.entries(options).forEach(([key, value]) => {
+      if (value !== undefined) {
+        formData.append(key, String(value));
+      }
+    });
+
+    // Make request to transcription API
+    const response = await fetch(`${API_BASE_URL}/transcribe`, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Transcription failed: ${errorText || response.statusText}`);
+    }
+
+    const result = await parseJsonResponse(response);
     
+    // Return standardized response
     return {
-      text: result.text,
-      durationSeconds: result.durationSeconds
+      transcription: result.transcription || result.text || '',
+      language: result.language || language,
+      durationSeconds: result.durationSeconds || 0
     };
   } catch (error: any) {
     console.error('Error transcribing audio:', error);
     throw new Error(`Transcription failed: ${error.message || 'Unknown error'}`);
+  }
+}
+
+/**
+ * Transcribes streaming audio data
+ * @param audioData Audio data as Buffer
+ * @param language Language code of the audio (e.g., 'en-US')
+ * @param options Additional options for transcription
+ * @returns Transcription result
+ */
+export async function transcribeStream(
+  audioData: Buffer,
+  language: string = 'en-US',
+  options: TranscriptionOptions = {}
+): Promise<TranscriptionResult> {
+  try {
+    // Create form data
+    const formData = new FormData();
+    formData.append('audio', audioData, {
+      filename: 'stream.webm',
+      contentType: 'audio/webm;codecs=opus'
+    });
+    formData.append('language', language);
+
+    // Add any additional options
+    Object.entries(options).forEach(([key, value]) => {
+      if (value !== undefined) {
+        formData.append(key, String(value));
+      }
+    });
+
+    // Make request to streaming transcription API
+    const response = await fetch(`${API_BASE_URL}/transcribe_stream`, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Streaming transcription failed: ${errorText || response.statusText}`);
+    }
+
+    const result = await parseJsonResponse(response);
+    
+    // Return standardized response
+    return {
+      transcription: result.transcription || result.text || '',
+      language: result.language || language,
+      durationSeconds: result.durationSeconds || 0
+    };
+  } catch (error: any) {
+    console.error('Error transcribing stream:', error);
+    throw new Error(`Streaming transcription failed: ${error.message || 'Unknown error'}`);
   }
 }
 
@@ -48,9 +145,23 @@ export async function translateText(
   targetLanguage: string
 ) {
   try {
-    // Call the Google Cloud Translation API
-    const result = await translate(text, sourceLanguage, targetLanguage);
-    
+    const response = await fetch(`${API_BASE_URL}/translate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        text,
+        sourceLanguage,
+        targetLanguage
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Translation failed: ${response.statusText}`);
+    }
+
+    const result = await response.json();
     return {
       translatedText: result.translatedText
     };
@@ -73,12 +184,33 @@ export async function textToSpeech(
   voice: string
 ) {
   try {
-    // Call the Google Cloud Text-to-Speech API
-    const result = await synthesizeSpeech(text, language, voice);
+    const response = await fetch(`${API_BASE_URL}/text-to-speech`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        text,
+        language,
+        voice
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Text-to-speech failed: ${response.statusText}`);
+    }
+
+    const audioBlob = await response.blob();
+    const audioFileName = `tts_${Date.now()}.mp3`;
+    const audioFilePath = path.join(process.cwd(), 'uploads', audioFileName);
+    
+    // Convert blob to buffer and save
+    const buffer = Buffer.from(await audioBlob.arrayBuffer());
+    fs.writeFileSync(audioFilePath, buffer);
     
     return {
-      audioUrl: result.audioUrl,
-      durationSeconds: result.durationSeconds
+      audioUrl: `/uploads/${audioFileName}`,
+      durationSeconds: 0 // This would need to be calculated from the audio file
     };
   } catch (error: any) {
     console.error('Error converting text to speech:', error);
@@ -99,66 +231,33 @@ export async function speechToSpeech(
   targetLanguage: string
 ) {
   try {
-    // Step 1: Transcribe audio to text in source language
-    console.log(`Transcribing audio from ${sourceLanguage}...`);
-    const transcriptionResult = await transcribeAudio(audioFilePath, sourceLanguage);
-    
-    if (!transcriptionResult.text || transcriptionResult.text.trim() === '') {
-      throw new Error('Failed to transcribe audio: No text was recognized');
+    const formData = new FormData();
+    formData.append('audio', fs.createReadStream(audioFilePath));
+    formData.append('sourceLanguage', sourceLanguage);
+    formData.append('targetLanguage', targetLanguage);
+
+    const response = await fetch(`${API_BASE_URL}/speech-to-speech-translate`, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      throw new Error(`Speech-to-speech translation failed: ${response.statusText}`);
     }
+
+    const audioBlob = await response.blob();
+    const audioFileName = `sts_${Date.now()}.mp3`;
+    const audioFilePath = path.join(process.cwd(), 'uploads', audioFileName);
     
-    console.log(`Transcription successful: "${transcriptionResult.text.substring(0, 50)}${transcriptionResult.text.length > 50 ? '...' : ''}"`);
-    
-    // Step 2: Translate text to target language
-    // Convert language codes if necessary (speech-to-text vs translation format)
-    const sourceTranslationLang = sourceLanguage.split('-')[0];
-    const targetTranslationLang = targetLanguage.split('-')[0];
-    
-    console.log(`Translating from ${sourceTranslationLang} to ${targetTranslationLang}...`);
-    const translationResult = await translateText(
-      transcriptionResult.text,
-      sourceTranslationLang,
-      targetTranslationLang
-    );
-    
-    if (!translationResult.translatedText || translationResult.translatedText.trim() === '') {
-      throw new Error('Failed to translate text: No translation was returned');
-    }
-    
-    console.log(`Translation successful: "${translationResult.translatedText.substring(0, 50)}${translationResult.translatedText.length > 50 ? '...' : ''}"`);
-    
-    // Step 3: Convert translated text to speech in target language
-    // Select voice based on target language
-    let voice = `${targetLanguage}-Standard-A`;
-    
-    // Voice selection based on common language codes
-    // This could be expanded or made configurable
-    if (targetLanguage.startsWith('en')) {
-      voice = `${targetLanguage}-Wavenet-D`; // Higher quality voice for English
-    } else if (targetLanguage.startsWith('es')) {
-      voice = `${targetLanguage}-Neural2-B`;
-    } else if (targetLanguage.startsWith('fr')) {
-      voice = `${targetLanguage}-Neural2-A`;
-    } else if (targetLanguage.startsWith('de')) {
-      voice = `${targetLanguage}-Neural2-B`;
-    } else if (targetLanguage.startsWith('ja')) {
-      voice = `${targetLanguage}-Wavenet-B`;
-    } else if (targetLanguage.startsWith('zh')) {
-      voice = `${targetLanguage}-Wavenet-D`;
-    }
-    
-    console.log(`Synthesizing speech in ${targetLanguage} using voice ${voice}...`);
-    const ttsResult = await textToSpeech(
-      translationResult.translatedText,
-      targetLanguage,
-      voice
-    );
-    
+    // Convert blob to buffer and save
+    const buffer = Buffer.from(await audioBlob.arrayBuffer());
+    fs.writeFileSync(audioFilePath, buffer);
+
     return {
-      sourceText: transcriptionResult.text,
-      translatedText: translationResult.translatedText,
-      audioUrl: ttsResult.audioUrl,
-      durationSeconds: ttsResult.durationSeconds || transcriptionResult.durationSeconds
+      sourceText: '', // These would need to be returned from the API
+      translatedText: '',
+      audioUrl: `/uploads/${audioFileName}`,
+      durationSeconds: 0
     };
   } catch (error: any) {
     console.error('Error in speech-to-speech translation:', error);

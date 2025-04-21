@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -41,13 +41,7 @@ type RegisterFormValues = z.infer<typeof registerSchema>;
 const Login = () => {
   const [activeTab, setActiveTab] = useState<string>("login");
   const [, navigate] = useLocation();
-  const { loginWithEmail: login, registerWithEmail: registerUser, loginWithGoogle: googleLogin, user } = useAuth();
-
-  // Redirect if already logged in
-  if (user) {
-    navigate("/dashboard");
-    return null;
-  }
+  const { loginWithEmail: login, registerWithEmail: registerUser, loginWithGoogle: googleLogin, user, loading } = useAuth();
 
   const loginForm = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -67,6 +61,12 @@ const Login = () => {
       confirmPassword: "",
     },
   });
+
+  useEffect(() => {
+    if (!loading && user) {
+      navigate("/dashboard");
+    }
+  }, [user, loading, navigate]);
 
   const onLoginSubmit = async (data: LoginFormValues) => {
     try {
@@ -94,6 +94,10 @@ const Login = () => {
       console.error("Google login error:", error);
     }
   };
+
+  if (loading) {
+    return <div>Loading...</div>;
+  }
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row">

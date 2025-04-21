@@ -13,8 +13,8 @@ const LandingPage = () => {
             <span className="text-2xl font-bold text-primary">SpeechGenius</span>
           </div>
           <div className="flex items-center space-x-4">
-            <Link href="/about">
-              <a className="text-gray-600 hover:text-gray-900">About</a>
+            <Link href="/about" className="text-gray-600 hover:text-gray-900">
+              About
             </Link>
             <Link href="/login">
               <Button variant="default">Sign In</Button>
