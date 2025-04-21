@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useTranscriptionService } from "@/hooks/useTranscriptionService";
 import { Textarea } from "@/components/ui/textarea";
 import { LANGUAGES, LANGUAGE_NAMES } from "@/types/speech-services";
+import { Play, Pause } from "lucide-react";
 
 interface TranscribeModalProps {
   isOpen: boolean;
@@ -16,9 +17,11 @@ interface TranscribeModalProps {
 const TranscribeModal = ({ isOpen, onClose }: TranscribeModalProps) => {
   const [file, setFile] = useState<File | null>(null);
   const [language, setLanguage] = useState("english");
-  const { transcribe, result, playAudio, playTranslatedAudio } = useTranscriptionService();
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const { transcribe, result, isTranscribing, reset } = useTranscriptionService();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) return;
 
@@ -27,17 +30,48 @@ const TranscribeModal = ({ isOpen, onClose }: TranscribeModalProps) => {
     } catch (error) {
       console.error('Transcription error:', error);
     }
-  };
+  }, [file, language, transcribe]);
+
+  const handlePlayPause = useCallback(() => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  }, [isPlaying]);
+
+  const cleanupAudio = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    setIsPlaying(false);
+  }, []);
 
   useEffect(() => {
-    if (result) {
-      // You can set any UI changes you want once the transcription result is available.
+    if (result?.originalAudioUrl) {
+      cleanupAudio();
+      audioRef.current = new Audio(result.originalAudioUrl);
+      audioRef.current.onended = () => setIsPlaying(false);
     }
-  }, [result]);
+    return cleanupAudio;
+  }, [result?.originalAudioUrl, cleanupAudio]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      cleanupAudio();
+      reset();
+      setFile(null);
+      setLanguage("english");
+    }
+  }, [isOpen, cleanupAudio, reset]);
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[425px] max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Transcribe Audio</DialogTitle>
           <DialogDescription>
@@ -71,7 +105,6 @@ const TranscribeModal = ({ isOpen, onClose }: TranscribeModalProps) => {
               </Select>
             </div>
 
-            {/* Transcription Result */}
             {result?.transcription && (
               <div className="grid gap-2">
                 <Label>Transcription</Label>
@@ -83,37 +116,36 @@ const TranscribeModal = ({ isOpen, onClose }: TranscribeModalProps) => {
               </div>
             )}
 
-            {/* Translated Text Result */}
-            {result?.translatedText && (
-              <div className="grid gap-2">
-                <Label>Translated Text</Label>
-                <Textarea
-                  value={result.translatedText}
-                  readOnly
-                  className="min-h-[100px]"
-                />
-              </div>
-            )}
-
-            {/* Play Audio Buttons */}
             <div className="grid gap-2">
               {result?.originalAudioUrl && (
-                <Button variant="outline" onClick={playAudio} className="w-full">
-                  Play Original Audio
-                </Button>
-              )}
-
-              {result?.translatedAudioUrl && (
-                <Button variant="outline" onClick={playTranslatedAudio} className="w-full">
-                  Play Translated Audio
+                <Button 
+                  type="button"
+                  variant="outline" 
+                  onClick={handlePlayPause} 
+                  className="w-full flex items-center justify-center gap-2"
+                >
+                  {isPlaying ? (
+                    <>
+                      <Pause className="h-4 w-4" />
+                      Pause Audio
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-4 w-4" />
+                      Play Audio
+                    </>
+                  )}
                 </Button>
               )}
             </div>
           </div>
 
           <DialogFooter>
-            <Button type="submit" disabled={!file || transcribe.isPending}>
-              {transcribe.isPending ? "Transcribing..." : "Transcribe"}
+            <Button 
+              type="submit" 
+              disabled={!file || isTranscribing}
+            >
+              {isTranscribing ? "Transcribing..." : "Transcribe"}
             </Button>
           </DialogFooter>
         </form>
