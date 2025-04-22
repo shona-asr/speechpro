@@ -1,7 +1,7 @@
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 export const API_ENDPOINTS = {
-  TRANSCRIBE: `${API_BASE_URL}/transcribe1`,
+  TRANSCRIBE: `${API_BASE_URL}/transcribe`,
   TRANSCRIBE_STREAM: `${API_BASE_URL}/transcribe_stream`,
   TRANSLATE: `${API_BASE_URL}/translate`,
   TEXT_TO_SPEECH: `${API_BASE_URL}/text-to-speech`,

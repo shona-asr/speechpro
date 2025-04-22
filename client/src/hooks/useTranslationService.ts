@@ -3,7 +3,8 @@ import { useToast } from "@/hooks/use-toast";
 import { API_ENDPOINTS } from "@/config/api";
 import { LANGUAGES } from "@/types/speech-services";
 import { storage } from "@/lib/storage";
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { useAuth } from "@/context/AuthContext";
 
 interface TranslationResult {
   originalText: string;
@@ -15,10 +16,29 @@ interface TranslationResult {
 
 export const useTranslationService = () => {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [result, setResult] = useState<TranslationResult | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
 
-  const translateText = useMutation({
-    mutationFn: async ({ text, sourceLanguage, targetLanguage }: { text: string, sourceLanguage: string, targetLanguage: string }) => {
+  const reset = useCallback(() => {
+    setResult(null);
+    setIsTranslating(false);
+  }, []);
+
+  const translate = useMutation({
+    mutationFn: async ({ 
+      text, 
+      sourceLanguage, 
+      targetLanguage 
+    }: { 
+      text: string; 
+      sourceLanguage: string; 
+      targetLanguage: string; 
+    }) => {
+      if (!user) {
+        throw new Error("User must be logged in to translate");
+      }
+
       const response = await fetch(API_ENDPOINTS.TRANSLATE, {
         method: "POST",
         headers: {
@@ -26,10 +46,9 @@ export const useTranslationService = () => {
         },
         body: JSON.stringify({
           text,
-          sourceLanguage: LANGUAGES[sourceLanguage as keyof typeof LANGUAGES],
-          targetLanguage: LANGUAGES[targetLanguage as keyof typeof LANGUAGES],
+          sourceLanguage: LANGUAGES[sourceLanguage as keyof typeof LANGUAGES].toLowerCase(),
+          targetLanguage: LANGUAGES[targetLanguage as keyof typeof LANGUAGES].toLowerCase(),
         }),
-        credentials: "include",
       });
 
       if (!response.ok) {
@@ -37,52 +56,48 @@ export const useTranslationService = () => {
         throw new Error(errorText || response.statusText);
       }
 
-      const data = await response.json();
-      return { ...data, originalText: text };
+      return response.json();
+    },
+    onMutate: () => {
+      setIsTranslating(true);
     },
     onSuccess: async (data) => {
-      // Create URL for audio playback if available
-      let audioUrl = '';
-      if (data.audioContent) {
-        try {
-          const byteCharacters = atob(data.audioContent);
-          const byteArrays = new Uint8Array(byteCharacters.length);
-          for (let i = 0; i < byteCharacters.length; i++) {
-            byteArrays[i] = byteCharacters.charCodeAt(i);
-          }
-      
-          const blob = new Blob([byteArrays], { type: "audio/mp3" });
-          audioUrl = URL.createObjectURL(blob);
-        } catch (err) {
-          console.error("Failed to decode audio content", err);
+      try {
+        if (!user) {
+          throw new Error("User must be logged in to save translation");
         }
+
+        // Save to database
+        await storage.saveTranslation(
+          0, // This will be auto-incremented by the database
+          user.uid,
+          data.sourceLanguage,
+          data.targetLanguage,
+          data.originalText,
+          data.translatedText,
+          data.audioUrl
+        );
+
+        setResult({
+          originalText: data.originalText,
+          sourceLanguage: data.sourceLanguage,
+          translatedText: data.translatedText,
+          targetLanguage: data.targetLanguage,
+          audioUrl: data.audioUrl,
+        });
+
+        toast({
+          title: "Translation complete",
+          description: "Ready to play audio and view translation",
+        });
+      } catch (error) {
+        console.error('Error saving translation:', error);
+        toast({
+          title: "Error saving translation",
+          description: "There was an error saving the translation to the database",
+          variant: "destructive",
+        });
       }
-      
-
-      // Save to storage
-      await storage.saveTranslation(
-        0, // transcriptionId will be updated if needed
-        'current-user', // userId should be from auth context
-        data.sourceLanguage,
-        data.targetLanguage,
-        data.originalText,
-        data.translatedText,
-        audioUrl
-      );
-
-      // Update state with results
-      setResult({
-        originalText: data.originalText,
-        sourceLanguage: data.sourceLanguage,
-        translatedText: data.translatedText,
-        targetLanguage: data.targetLanguage,
-        audioUrl
-      });
-      
-      toast({
-        title: "Translation complete",
-        description: "Ready to view translation and play audio",
-      });
     },
     onError: (error) => {
       toast({
@@ -91,6 +106,9 @@ export const useTranslationService = () => {
         variant: "destructive",
       });
     },
+    onSettled: () => {
+      setIsTranslating(false);
+    }
   });
 
   const playAudio = () => {
@@ -102,8 +120,10 @@ export const useTranslationService = () => {
   };
 
   return {
-    translateText,
+    translate,
     result,
+    isTranslating,
+    reset,
     playAudio
   };
 }; 

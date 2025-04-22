@@ -3,7 +3,8 @@ import { useToast } from "@/hooks/use-toast";
 import { API_ENDPOINTS } from "@/config/api";
 import { LANGUAGES } from "@/types/speech-services";
 import { storage } from "@/lib/storage";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@/context/AuthContext";
 
 interface SpeechToSpeechResult {
   originalAudioUrl: string;
@@ -13,10 +14,10 @@ interface SpeechToSpeechResult {
 }
 
 interface TranslationResponse {
-  originalAudio: string;       // base64
-  synthesizedAudio: string;    // base64
   transcription: string;
   translatedText: string;
+  originalAudioUrl: string;
+  translatedAudioUrl: string;
   sourceLanguage: string;
   targetLanguage: string;
 }
@@ -34,21 +35,39 @@ function base64ToBlob(base64: string, mime: string = "audio/mp3"): Blob {
 
 export const useSpeechToSpeechService = () => {
   const { toast } = useToast();
-  const [translationResult, setTranslationResult] = useState<SpeechToSpeechResult | null>(null);
+  const { user } = useAuth();
+  const [result, setResult] = useState<TranslationResponse | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
   const [originalAudio, setOriginalAudio] = useState<HTMLAudioElement | null>(null);
   const [synthesizedAudio, setSynthesizedAudio] = useState<HTMLAudioElement | null>(null);
 
-  const speechToSpeechTranslate = useMutation({
-    mutationFn: async ({ file, sourceLanguage, targetLanguage }: { file: File, sourceLanguage: string, targetLanguage: string }) => {
+  const reset = useCallback(() => {
+    setResult(null);
+    setIsTranslating(false);
+  }, []);
+
+  const translate = useMutation({
+    mutationFn: async ({ 
+      file, 
+      sourceLanguage, 
+      targetLanguage 
+    }: { 
+      file: File; 
+      sourceLanguage: string; 
+      targetLanguage: string; 
+    }) => {
+      if (!user) {
+        throw new Error("User must be logged in to perform speech-to-speech translation");
+      }
+
       const formData = new FormData();
-      formData.append('audio', file);
-      formData.append('sourceLanguage', LANGUAGES[sourceLanguage as keyof typeof LANGUAGES]);
-      formData.append('targetLanguage', targetLanguage);
+      formData.append("audio", file, file.name);
+      formData.append("sourceLanguage", LANGUAGES[sourceLanguage as keyof typeof LANGUAGES].toLowerCase());
+      formData.append("targetLanguage", LANGUAGES[targetLanguage as keyof typeof LANGUAGES].toLowerCase());
 
       const response = await fetch(API_ENDPOINTS.SPEECH_TO_SPEECH, {
         method: "POST",
         body: formData,
-        credentials: "include",
       });
 
       if (!response.ok) {
@@ -56,74 +75,61 @@ export const useSpeechToSpeechService = () => {
         throw new Error(errorText || response.statusText);
       }
 
-      const data: TranslationResponse = await response.json();
-
-      if (
-        !data.originalAudio || 
-        !data.synthesizedAudio || 
-        !data.transcription || 
-        !data.translatedText
-      ) {
-        throw new Error("Incomplete response from the server.");
-      }
-
-      return data;
+      return response.json();
+    },
+    onMutate: () => {
+      setIsTranslating(true);
     },
     onSuccess: async (data) => {
-      const {
-        originalAudio: originalAudioBase64,
-        synthesizedAudio: synthesizedAudioBase64,
-        transcription,
-        translatedText,
-        sourceLanguage,
-        targetLanguage
-      } = data;
+      try {
+        if (!user) {
+          throw new Error("User must be logged in to save speech-to-speech translation");
+        }
 
-      const originalAudioBlob = base64ToBlob(originalAudioBase64);
-      const synthesizedAudioBlob = base64ToBlob(synthesizedAudioBase64);
+        // Save to database
+        await storage.saveSpeechToSpeech(
+          0, // This will be auto-incremented by the database
+          user.uid,
+          data.sourceLanguage,
+          data.targetLanguage,
+          data.originalAudioUrl,
+          data.transcription,
+          data.translatedText,
+          data.translatedAudioUrl
+        );
 
-      const originalAudioUrl = URL.createObjectURL(originalAudioBlob);
-      const synthesizedAudioUrl = URL.createObjectURL(synthesizedAudioBlob);
+        setResult({
+          transcription: data.transcription,
+          translatedText: data.translatedText,
+          originalAudioUrl: data.originalAudioUrl,
+          translatedAudioUrl: data.translatedAudioUrl,
+          sourceLanguage: data.sourceLanguage,
+          targetLanguage: data.targetLanguage,
+        });
 
-      // Create new audio elements
-      const originalAudioElement = new Audio(originalAudioUrl);
-      const synthesizedAudioElement = new Audio(synthesizedAudioUrl);
-
-      setOriginalAudio(originalAudioElement);
-      setSynthesizedAudio(synthesizedAudioElement);
-
-      // Save to storage
-      await storage.saveSpeechToSpeech(
-        0,
-        'current-user',
-        sourceLanguage,
-        targetLanguage,
-        originalAudioUrl,
-        transcription,
-        translatedText,
-        synthesizedAudioUrl
-      );
-
-      setTranslationResult({
-        originalAudioUrl,
-        transcription,
-        translatedText,
-        synthesizedAudioUrl
-      });
-
-      toast({
-        title: "Translation complete",
-        description: "Ready to play audio and view translation",
-      });
+        toast({
+          title: "Translation complete",
+          description: "Ready to play audio and view translation",
+        });
+      } catch (error) {
+        console.error('Error saving speech-to-speech translation:', error);
+        toast({
+          title: "Error saving translation",
+          description: "There was an error saving the speech-to-speech translation to the database",
+          variant: "destructive",
+        });
+      }
     },
     onError: (error) => {
-      const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred.";
       toast({
-        title: "Speech to Speech Translation failed",
-        description: errorMessage,
+        title: "Translation failed",
+        description: error.message,
         variant: "destructive",
       });
     },
+    onSettled: () => {
+      setIsTranslating(false);
+    }
   });
 
   const playOriginalAudio = () => {
@@ -149,16 +155,18 @@ export const useSpeechToSpeechService = () => {
   // Cleanup function to revoke object URLs
   useEffect(() => {
     return () => {
-      if (translationResult) {
-        URL.revokeObjectURL(translationResult.originalAudioUrl);
-        URL.revokeObjectURL(translationResult.synthesizedAudioUrl);
+      if (result) {
+        URL.revokeObjectURL(result.originalAudioUrl);
+        URL.revokeObjectURL(result.translatedAudioUrl);
       }
     };
-  }, [translationResult]);
+  }, [result]);
 
   return {
-    speechToSpeechTranslate,
-    translationResult,
+    translate,
+    result,
+    isTranslating,
+    reset,
     playOriginalAudio,
     playSynthesizedAudio,
     originalAudio,

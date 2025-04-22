@@ -1,127 +1,120 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { User as FirebaseUser, onAuthStateChanged } from "firebase/auth";
-import { auth, loginWithGoogle, loginWithEmailPassword, registerWithEmailPassword, logoutUser } from "../lib/firebase";
-import { apiRequest } from "@/lib/queryClient";
+import { auth, db } from "@/lib/firebase";
+import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut } from "firebase/auth";
+import { doc, setDoc, getDoc } from "firebase/firestore";
+import { useToast } from "@/hooks/use-toast";
 
 interface AuthContextType {
-  user: FirebaseUser | null;
+  user: User | null;
   loading: boolean;
   error: string | null;
-  loginWithGoogle: () => Promise<void>;
   loginWithEmail: (email: string, password: string) => Promise<void>;
   registerWithEmail: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
-  getToken: () => Promise<string | null>;
 }
 
-const AuthContext = createContext<AuthContextType>({
-  user: null,
-  loading: true,
-  error: null,
-  loginWithGoogle: async () => {},
-  loginWithEmail: async () => {},
-  registerWithEmail: async () => {},
-  logout: async () => {},
-  getToken: async () => null,
-});
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const useAuth = () => useContext(AuthContext);
-
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export const AuthProvider = ({ children }: AuthProviderProps) => {
-  const [user, setUser] = useState<FirebaseUser | null>(null);
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const getToken = async () => {
-    if (!user) return null;
-    try {
-      return await user.getIdToken(true); // Force refresh the token
-    } catch (error) {
-      console.error("Error getting token:", error);
-      return null;
-    }
-  };
-
-  // Create or update user in the backend after Firebase authentication
-  const syncUserWithBackend = async (user: FirebaseUser) => {
-    try {
-      const idToken = await user.getIdToken(true);
-      await apiRequest("POST", "/api/users/sync", {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName,
-        photoURL: user.photoURL,
-      }, idToken);
-    } catch (error) {
-      console.error("Error syncing user with backend:", error);
-    }
-  };
+  const { toast } = useToast();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
-      setLoading(false);
-      if (firebaseUser) {
-        await syncUserWithBackend(firebaseUser);
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        // Check if user document exists in Firestore
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (!userDoc.exists()) {
+          // Create user document if it doesn't exist
+          await setDoc(doc(db, "users", user.uid), {
+            email: user.email,
+            displayName: user.displayName || "",
+            createdAt: new Date().toISOString(),
+            lastLogin: new Date().toISOString(),
+          });
+        } else {
+          // Update last login time
+          await setDoc(doc(db, "users", user.uid), {
+            lastLogin: new Date().toISOString(),
+          }, { merge: true });
+        }
       }
+      setUser(user);
+      setLoading(false);
     });
 
     return () => unsubscribe();
   }, []);
 
-  const handleLoginWithGoogle = async () => {
+  const loginWithEmail = async (email: string, password: string) => {
     try {
       setLoading(true);
       setError(null);
-      await loginWithGoogle();
-    } catch (error) {
-      setError("Failed to sign in with Google");
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleLoginWithEmail = async (email: string, password: string) => {
-    try {
-      setLoading(true);
-      setError(null);
-      await loginWithEmailPassword(email, password);
-    } catch (error) {
-      setError("Failed to sign in with email/password");
-      console.error(error);
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (error: any) {
+      setError(error.message);
       throw error;
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRegisterWithEmail = async (email: string, password: string) => {
+  const registerWithEmail = async (email: string, password: string) => {
     try {
       setLoading(true);
       setError(null);
-      await registerWithEmailPassword(email, password);
-    } catch (error) {
-      setError("Failed to register");
-      console.error(error);
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      // Create user document in Firestore
+      await setDoc(doc(db, "users", userCredential.user.uid), {
+        email: userCredential.user.email,
+        displayName: userCredential.user.displayName || "",
+        createdAt: new Date().toISOString(),
+        lastLogin: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      setError(error.message);
       throw error;
     } finally {
       setLoading(false);
     }
   };
 
-  const handleLogout = async () => {
+  const loginWithGoogle = async () => {
     try {
       setLoading(true);
       setError(null);
-      await logoutUser();
-    } catch (error) {
-      setError("Failed to log out");
-      console.error(error);
+      const provider = new GoogleAuthProvider();
+      const userCredential = await signInWithPopup(auth, provider);
+      // Check if user document exists in Firestore
+      const userDoc = await getDoc(doc(db, "users", userCredential.user.uid));
+      if (!userDoc.exists()) {
+        // Create user document if it doesn't exist
+        await setDoc(doc(db, "users", userCredential.user.uid), {
+          email: userCredential.user.email,
+          displayName: userCredential.user.displayName || "",
+          createdAt: new Date().toISOString(),
+          lastLogin: new Date().toISOString(),
+        });
+      }
+    } catch (error: any) {
+      setError(error.message);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      await signOut(auth);
+    } catch (error: any) {
+      setError(error.message);
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -131,12 +124,19 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     user,
     loading,
     error,
-    loginWithGoogle: handleLoginWithGoogle,
-    loginWithEmail: handleLoginWithEmail,
-    registerWithEmail: handleRegisterWithEmail,
-    logout: handleLogout,
-    getToken,
+    loginWithEmail,
+    registerWithEmail,
+    loginWithGoogle,
+    logout,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-};
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return context;
+}

@@ -3,7 +3,8 @@ import { useToast } from "@/hooks/use-toast";
 import { API_ENDPOINTS } from "@/config/api";
 import { LANGUAGES } from "@/types/speech-services";
 import { storage } from "@/lib/storage";
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { useAuth } from "@/context/AuthContext";
 
 interface TranscriptionResult {
   originalAudioUrl: string;
@@ -25,18 +26,32 @@ function base64ToBlob(base64: string, mime: string = "audio/mp3"): Blob {
 
 export const useTranscriptionService = () => {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [result, setResult] = useState<TranscriptionResult | null>(null);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+
+  const reset = useCallback(() => {
+    setResult(null);
+    setIsTranscribing(false);
+  }, []);
 
   const transcribeAudio = useMutation({
     mutationFn: async ({ file, language }: { file: File; language: string }) => {
+      if (!user) {
+        throw new Error("User must be logged in to transcribe audio");
+      }
+
       const formData = new FormData();
-      formData.append("audio", file);
-      formData.append("language", LANGUAGES[language as keyof typeof LANGUAGES]);
+      formData.append("audio", file, file.name);
+      formData.append("language", LANGUAGES[language as keyof typeof LANGUAGES].toLowerCase());
 
       const response = await fetch(API_ENDPOINTS.TRANSCRIBE, {
         method: "POST",
         body: formData,
         credentials: "include",
+        headers: {
+          'Accept': 'application/json',
+        }
       });
 
       if (!response.ok) {
@@ -44,51 +59,63 @@ export const useTranscriptionService = () => {
         throw new Error(errorText || response.statusText);
       }
 
-      const data = await response.json();
-      return data;
+      return response.json();
+    },
+    onMutate: () => {
+      setIsTranscribing(true);
     },
     onSuccess: async (data) => {
-      const {
-        originalAudio,
-        transcription
-      } = data;
+      try {
+        if (!user) {
+          throw new Error("User must be logged in to save transcription");
+        }
 
-      // Create URL for audio playback
-      const originalAudioBlob = base64ToBlob(originalAudio);
-      const originalAudioUrl = URL.createObjectURL(originalAudioBlob);
+        const {
+          originalAudio,
+          transcription
+        } = data;
 
-      // Convert base64 to File object
-      const audioFile = new File([originalAudioBlob], 'audio.mp3', { type: 'audio/mp3' });
+        // Create URL for audio playback
+        const originalAudioBlob = base64ToBlob(originalAudio);
+        const originalAudioUrl = URL.createObjectURL(originalAudioBlob);
 
-      // Save to storage
-      const audioId = await storage.saveAudioFile(
-        audioFile,
-        "current-user", // userId should be from auth context
-        data.language
-      );
+        // Convert base64 to File object
+        const audioFile = new File([originalAudioBlob], 'audio.mp3', { type: 'audio/mp3' });
 
-      await storage.saveTranscription(
-        audioId,
-        "current-user", // userId should be from auth context
-        data.transcription,
-        data.language,
-        data.confidence || 0,
-        "batch",
-        originalAudioUrl
-      );
+        // Save to storage
+        const audioId = await storage.saveAudioFile(
+          audioFile,
+          user.uid,
+          data.language
+        );
 
-      // Update result with backend data, including translated content if available
-      setResult({
-        originalAudioUrl,
-        transcription: data.transcription,
-        //translatedText: data.translatedText || undefined, // Optional field
-        //translatedAudioUrl: data.translatedAudio || undefined, // Optional field
-      });
+        await storage.saveTranscription(
+          audioId,
+          user.uid,
+          data.transcription,
+          data.language,
+          data.confidence || 0,
+          "batch",
+          originalAudioUrl
+        );
 
-      toast({
-        title: "Transcription complete",
-        description: "Ready to play audio and view transcription",
-      });
+        setResult({
+          originalAudioUrl,
+          transcription: data.transcription,
+        });
+
+        toast({
+          title: "Transcription complete",
+          description: "Ready to play audio and view transcription",
+        });
+      } catch (error) {
+        console.error('Error processing transcription result:', error);
+        toast({
+          title: "Error processing result",
+          description: "There was an error processing the transcription result",
+          variant: "destructive",
+        });
+      }
     },
     onError: (error) => {
       toast({
@@ -97,27 +124,16 @@ export const useTranscriptionService = () => {
         variant: "destructive",
       });
     },
+    onSettled: () => {
+      setIsTranscribing(false);
+    }
   });
-
-  const playAudio = () => {
-    if (result?.originalAudioUrl) {
-      const audio = new Audio(result.originalAudioUrl);
-      audio.play();
-    }
-  };
-
-  const playTranslatedAudio = () => {
-    if (result?.translatedAudioUrl) {
-      const audio = new Audio(result.translatedAudioUrl);
-      audio.play();
-    }
-  };
 
   return {
     transcribe: transcribeAudio,
     transcribeAudio,
     result,
-    playAudio,
-    playTranslatedAudio,
+    isTranscribing,
+    reset
   };
 };
